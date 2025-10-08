@@ -1,9 +1,16 @@
-from tinkoff.invest import Client, MoneyValue
-from tinkoff.invest.services import SandboxService
+try:
+    from tinkoff.invest import Client, MoneyValue
+    from tinkoff.invest.services import SandboxService
+except Exception:  # pragma: no cover - keep runnable without SDK installed
+    Client = None
+    MoneyValue = None
+    SandboxService = None
 
 TOKEN = "t.VtxWp5QjcwbIQuqg7DYFFocZgtTRN2ofhqisP3cW8SptzsxLzuny5n2LILOjbVm7_o0PgWrFcDWKBAjQk5oqFA"  # вставь сюда свой песочничный токен
 
 def main():
+    if not Client or not MoneyValue:
+        raise RuntimeError("tinkoff.invest SDK is required to run sandbox_test")
     with Client(TOKEN) as client:
         print("=== Проверка sandbox аккаунтов ===")
 
