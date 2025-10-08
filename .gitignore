@@ -1,3 +1,27 @@
-*.log
-*.tmp
-nul
+# Python
+__pycache__/
+*.py[cod]
+*.pyd
+*.so
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# Environments
+.venv/
+venv/
+ENV/
+env/
+.env
+
+# Results / data
+results/
+reports/
+*.db
+*.sqlite
+*.parquet
+*.csv
+
+# Jupyter
+.ipynb_checkpoints/
