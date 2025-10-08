@@ -17,7 +17,6 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
 import logging
 
-from .config import load_config
 
 
 def create_scheduler(cfg: Dict[str, Any]) -> BackgroundScheduler:

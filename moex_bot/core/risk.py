@@ -10,7 +10,7 @@ to exit trades when risk thresholds are breached.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict
 import datetime
 import logging
 

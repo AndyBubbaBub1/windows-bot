@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import pandas as pd
 
+from .base import BaseStrategy
+
 # Exported strategy name.  This constant is referenced by the loader
 # and report builder.  Do not modify without updating the configuration.
 STRATEGY_NAME = 'pair_trading'
@@ -33,9 +35,6 @@ def strategy(df: pd.DataFrame, lookback: int = 30, entry_threshold: float = 1.0,
         Series of signals: 1 (long), -1 (short) or 0 (flat).
     """
     return PairTradingStrategy(lookback=lookback, entry_threshold=entry_threshold, exit_threshold=exit_threshold).generate_signals(df)
-
-
-from .base import BaseStrategy
 
 
 class PairTradingStrategy(BaseStrategy):
@@ -88,5 +87,3 @@ class PairTradingStrategy(BaseStrategy):
 
 
 __all__ = ["STRATEGY_NAME", "strategy", "PairTradingStrategy"]
-
-__all__ = ['STRATEGY_NAME', 'strategy']
