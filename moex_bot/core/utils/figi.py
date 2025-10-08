@@ -90,16 +90,22 @@ def list_russian_shares(
             if str(lvl).strip().isdigit()
         }
 
+    request_kwargs: dict[str, object] = {}
+    if InstrumentStatus:
+        status_value = None
+        for attr_name in (
+            "INSTRUMENT_STATUS_BASE",
+            "INSTRUMENT_STATUS_UNSPECIFIED",
+            "INSTRUMENT_STATUS_ALL",
+        ):
+            status_value = getattr(InstrumentStatus, attr_name, None)
+            if status_value is not None:
+                break
+        if status_value is not None:
+            request_kwargs["instrument_status"] = status_value
     try:
-        instrument_status = (
-            getattr(InstrumentStatus, "INSTRUMENT_STATUS_BASE")
-            if InstrumentStatus
-            else None
-        )
         with Client(token) as client:
-            response = client.instruments.shares(
-                instrument_status=instrument_status
-            )
+            response = client.instruments.shares(**request_kwargs)
             shares = getattr(response, "instruments", [])
     except Exception:
         return []

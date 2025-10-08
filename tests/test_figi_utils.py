@@ -110,3 +110,27 @@ def test_list_russian_shares_handles_failures(monkeypatch):
     monkeypatch.setattr(figi, "Client", lambda token: _FakeClient(token, fail=True))
     assert figi.list_russian_shares("token") == []
 
+
+def test_list_russian_shares_without_status(monkeypatch):
+    recorder: dict[str, object] = {}
+
+    class _RecorderInstruments:
+        def shares(self, **kwargs):  # pragma: no cover - simple recorder
+            recorder["kwargs"] = kwargs
+            return _FakeSharesResponse([])
+
+    class _RecorderClient(_FakeClient):
+        def __init__(self, token):
+            super().__init__(token)
+            self._recorder = _RecorderInstruments()
+
+        @property
+        def instruments(self):  # pragma: no cover - simple override
+            return self._recorder
+
+    monkeypatch.setattr(figi, "InstrumentStatus", None)
+    monkeypatch.setattr(figi, "Client", lambda token: _RecorderClient(token))
+
+    assert figi.list_russian_shares("token") == []
+    assert recorder.get("kwargs") == {}
+
