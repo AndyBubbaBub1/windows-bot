@@ -9,9 +9,11 @@ could be resolved at runtime via the Tinkoff Invest API or the MOEX
 ISS, a static mapping ensures the bot can operate offline and
 produces reproducible backtest results.
 
-You can extend or modify this universe as needed.  If you need a
-dynamic universe, consider implementing a loader using the ISS API in
-``moex_bot.core.utils.figi.ticker_to_figi`` and caching the results.
+You can extend or modify this universe as needed.  For a dynamic
+universe that covers the first, second and third echelons, use
+``moex_bot.core.utils.figi.list_russian_shares`` to download the
+current catalogue of Russian shares directly from the Tinkoff Invest
+API and cache the response as appropriate.
 
 Example usage::
 
