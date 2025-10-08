@@ -1,0 +1,6 @@
+# Include configuration and example environment files in the source distribution
+include moex_bot/config.yaml
+include moex_bot/.env.example
+
+# Include static files for the web dashboard
+recursive-include moex_bot/web/static *

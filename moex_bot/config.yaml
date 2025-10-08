@@ -1,0 +1,199 @@
+capital: 1000000
+commission: 0.0004
+data_path: data
+results_path: results
+results_dir: results
+db_path: results/history.db
+
+# Trading mode selection.  One of ``live``, ``virtual`` or ``sandbox``.
+# In ``live`` mode orders are sent to the production Tinkoff API.
+# In ``virtual`` mode signals are generated using live data but
+# orders are only logged and not executed.  In ``sandbox`` mode the
+# sandbox service is used when available.  The Trader class will
+# interpret this setting together with the ``sandbox`` flag under
+# ``tinkoff``.
+trade_mode: sandbox
+
+# Telegram configuration.  Tokens and chat identifiers should be
+# provided via environment variables to avoid storing secrets in
+# version control.  The ``${VAR}`` syntax instructs the loader to
+# expand the value from the corresponding environment variable or
+# leave it empty if undefined.
+telegram:
+  token: ${TELEGRAM_TOKEN}
+  chat_id: ${TELEGRAM_CHAT_ID}
+
+  # List of allowed Telegram user identifiers for command handling.
+  # If empty, all users are denied.  Commands received from users
+  # not in this list will be ignored for security reasons.
+  allowed_users: []
+
+# Strategy definitions.  Each key defines a unique strategy name.
+# ``class`` specifies the class to instantiate from the
+# ``moex_bot_new.strategies`` package.  Parameters for the
+# constructor are provided under ``params``.  ``symbols`` lists
+# tickers that the strategy should monitor in live trading.  For
+# backtesting the symbols list is ignored; instead the backtester
+# will apply strategies to all files matching the data glob.
+strategies:
+  sma_strategy:
+    class: SMAStrategy
+    module: sma
+    params:
+      short_window: 5
+      long_window: 20
+    symbols:
+      - SBER
+      - GAZP
+  ml_predict:
+    class: MLPredictStrategy
+    module: ml_predict
+    params:
+      window: 30
+      model: RandomForest
+    symbols:
+      - LKOH
+      - ROSN
+  supertrend:
+    class: SuperTrendStrategy
+    module: supertrend
+    params:
+      period: 10
+      multiplier: 3.0
+    symbols:
+      - TATN
+      - MTSS
+  atr_stop:
+    class: ATRStopStrategy
+    module: atr_stop
+    params:
+      atr_period: 14
+      multiplier: 2.0
+    symbols:
+      - AFLT
+      - MGNT
+  pair_trading:
+    class: PairTradingStrategy
+    module: pair_trading
+    params:
+      lookback: 60
+      entry_threshold: 2.0
+      exit_threshold: 0.5
+    symbols:
+      - SBER
+      - GAZP
+
+  # Additional strategies added for more variety
+  rsi:
+    class: RSIStrategy
+    module: rsi
+    params:
+      period: 14
+      lower: 30.0
+      upper: 70.0
+    symbols:
+      - SBER
+      - GAZP
+  bollinger_bands:
+    class: BollingerBandsStrategy
+    module: bollinger_bands
+    params:
+      window: 20
+      multiplier: 2.0
+    symbols:
+      - MGNT
+      - AFLT
+  arbitrage:
+    class: ArbitrageStrategy
+    module: arbitrage
+    params:
+      lookback: 20
+      entry_threshold: 2.0
+      exit_threshold: 0.5
+    symbols:
+      - SBER
+      - GAZP
+  news_sentiment:
+    class: NewsSentimentStrategy
+    module: news_sentiment
+    params: {}
+    symbols:
+      - ROSN
+      - TATN
+  lstm_predict:
+    class: LSTMPredictStrategy
+    module: lstm_predict
+    params:
+      window: 30
+    symbols:
+      - GAZP
+      - LKOH
+
+# Risk management parameters.  These values override the defaults
+# in :class:`RiskManager` when provided.  Each key corresponds to
+# a dataclass field of ``RiskManager``.
+risk:
+  max_drawdown_pct: 0.2
+  max_daily_loss_pct: 0.1
+  max_position_pct: 0.2
+  per_trade_risk_pct: 0.02
+  stop_loss_pct: 0.05
+  take_profit_pct: 0.1
+  max_positions: 5
+  allow_short: false
+
+# Schedule of recurring jobs.  A daily backtest is run at 08:00
+# server time.  A live trading loop runs every minute to evaluate
+# strategies on the latest market data and send orders when
+# appropriate.  Modify the cron expressions to adjust timing.
+schedule:
+  daily_backtest:
+    func: "moex_bot.run_backtests.main"  # call the main function from the script
+    cron: "0 8 * * *"
+  live_trading:
+    func: "moex_bot.core.live_loop.run_live_cycle"
+    cron: "*/1 * * * *"  # every minute
+
+# Portfolio allocation: target weights for each strategy; must sum to 1.0.
+portfolio:
+  target_allocations:
+    sma_strategy: 0.15
+    ml_predict: 0.15
+    supertrend: 0.15
+    atr_stop: 0.15
+    pair_trading: 0.15
+    rsi: 0.05
+    bollinger_bands: 0.05
+    arbitrage: 0.05
+    news_sentiment: 0.05
+    lstm_predict: 0.05
+
+# HTTP server configuration for the FastAPI dashboard.  By default
+# binds to localhost; override via environment variables
+# ``MOEX_API_HOST`` and ``MOEX_API_PORT``.
+server:
+  host: 127.0.0.1
+  port: 8000
+
+# Tinkoff broker API configuration.  Secrets are pulled from
+# environment variables.  Set ``TINKOFF_SANDBOX=true`` to enable
+# sandbox mode.  The ``token`` and ``account_id`` keys default to
+# empty strings if the corresponding environment variables are not
+# defined.  In sandbox mode no real money is traded.
+tinkoff:
+  # API token for production (live) mode.  Set this to your Tinkoff Invest token.
+  token: ${TINKOFF_TOKEN}
+  # Account identifier for production mode.
+  account_id: ${TINKOFF_ACCOUNT_ID}
+  # Flag indicating whether to use sandbox endpoints (true/false).
+  sandbox: ${TINKOFF_SANDBOX}
+  # Optional sandbox token; if provided and sandbox=true, overrides the production token.
+  sandbox_token: ${TINKOFF_SANDBOX_TOKEN}
+  # Optional sandbox account id; if provided and sandbox=true, overrides the production account.
+  account_id_sandbox: ${TINKOFF_ACCOUNT_ID_SANDBOX}
+
+# Database location.  Relative paths are resolved relative to the
+# project root.  The default places the SQLite database in the
+# ``results`` directory.
+database: results/history.db
+

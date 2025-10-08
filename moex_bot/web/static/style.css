@@ -1,0 +1,6 @@
+body { font-family: Arial, sans-serif; margin: 20px; }
+h1, h2, h3 { color: #333; }
+img { max-width: 100%; height: auto; }
+@media (max-width: 600px) {
+  body { font-size: 14px; }
+}
