@@ -12,7 +12,7 @@ logs that Telegram functionality is unavailable.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import List, Optional, Any
 
 try:
@@ -25,7 +25,7 @@ except Exception:
     CommandHandler = None  # type: ignore
     ContextTypes = None  # type: ignore
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class TelegramBot:

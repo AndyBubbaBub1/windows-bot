@@ -10,13 +10,13 @@ interface.
 
 from __future__ import annotations
 
-import logging
+import structlog
 from dataclasses import dataclass, field
 from typing import Optional
 
 from .risk import RiskManager
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 @dataclass
 class LiveTrader:

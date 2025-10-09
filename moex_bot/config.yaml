@@ -28,6 +28,22 @@ telegram:
   # not in this list will be ignored for security reasons.
   allowed_users: []
 
+# Alert dispatch configuration.  The dispatcher can forward
+# notifications to multiple channels with rate limiting.  Secrets
+# should be provided via environment variables.
+alerts:
+  min_interval_seconds: 300
+  slack_webhook: ${SLACK_WEBHOOK_URL}
+  telegram_token: ${ALERT_TELEGRAM_TOKEN}
+  telegram_chat_id: ${ALERT_TELEGRAM_CHAT_ID}
+  email:
+    smtp_host: ${ALERT_SMTP_HOST}
+    smtp_port: ${ALERT_SMTP_PORT}
+    username: ${ALERT_SMTP_USER}
+    password: ${ALERT_SMTP_PASSWORD}
+    sender: ${ALERT_EMAIL_SENDER}
+    recipients: []
+
 # Strategy definitions.  Each key defines a unique strategy name.
 # ``class`` specifies the class to instantiate from the
 # ``moex_bot_new.strategies`` package.  Parameters for the

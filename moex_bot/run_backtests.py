@@ -13,7 +13,8 @@ load_dotenv()
 
 from pathlib import Path
 import os
-import logging
+
+import structlog
 
 # Note: The moex_bot package must be installed (e.g. via ``pip install -e .``)
 # for these imports to resolve without modifying sys.path.  See ``setup.py``
@@ -34,7 +35,7 @@ from moex_bot.reporting.report_builder import generate_reports, send_telegram_me
 def main() -> None:
     # Configure logging once at script entry
     configure_logging()
-    logger = logging.getLogger(__name__)
+    logger = structlog.get_logger(__name__)
     cfg = load_config()
     # Determine initial capital: prefer 'capital' key, fall back to legacy 'start_capital'
     start_capital = cfg.get('capital') or cfg.get('start_capital') or 1_000_000

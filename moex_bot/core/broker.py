@@ -11,17 +11,19 @@ application.  When used in sandbox mode no real trades are placed.
 
 from __future__ import annotations
 
-import logging
 import uuid
 from typing import Optional
 
+import structlog
+
+from .monitoring import record_order_submission, set_outstanding_orders
 try:
     from tinkoff.invest import Client
 except Exception:
     # When tinkoff.invest is not available, define a stub Client
     Client = None  # type: ignore
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 
 class Trader:
@@ -87,6 +89,7 @@ class Trader:
         # Telegram configuration
         self.telegram_token = telegram_token or ''
         self.telegram_chat_id = telegram_chat_id or ''
+        self._outstanding_orders = 0
         # If virtual mode or no token, operate in dry run
         if self.virtual or not self.token or Client is None:
             if not self.token:
@@ -146,13 +149,17 @@ class Trader:
             direction: 1 for buy, 2 for sell.
             limit_price: Optional price for limit orders; ``None`` for market.
         """
-        order_id = self._generate_order_id('buy' if direction == 1 else 'sell', figi, lots)
-        if self._client is None:
-            # Dry‑run mode: just log the order and notify via Telegram if configured
-            logger.info(f"[DRY‑RUN] {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'} (sandbox={self.sandbox}) [order_id={order_id}]")
-            self._notify_trade(direction, figi, lots, limit_price, order_id)
-            return
+        side_label = 'buy' if direction == 1 else 'sell'
+        order_id = self._generate_order_id(side_label, figi, lots)
+        record_order_submission(side_label)
+        self._outstanding_orders += 1
+        set_outstanding_orders(self._outstanding_orders)
         try:
+            if self._client is None:
+                # Dry‑run mode: just log the order and notify via Telegram if configured
+                logger.info(f"[DRY‑RUN] {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'} (sandbox={self.sandbox}) [order_id={order_id}]")
+                self._notify_trade(direction, figi, lots, limit_price, order_id)
+                return
             with self._client as client:
                 if self.sandbox and hasattr(client, 'sandbox'):
                     client.sandbox.post_sandbox_order(
@@ -179,6 +186,9 @@ class Trader:
             self._notify_trade(direction, figi, lots, limit_price, order_id)
         except Exception as e:
             logger.error(f"Error submitting order {order_id} for {figi}: {e}")
+        finally:
+            self._outstanding_orders = max(0, self._outstanding_orders - 1)
+            set_outstanding_orders(self._outstanding_orders)
 
     def buy(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> None:
         """Place a buy order for the specified instrument."""
