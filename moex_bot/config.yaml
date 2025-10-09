@@ -14,6 +14,10 @@ db_path: results/history.db
 # ``tinkoff``.
 trade_mode: sandbox
 
+trading:
+  leverage: 2.0
+  allow_short: true
+
 # Telegram configuration.  Tokens and chat identifiers should be
 # provided via environment variables to avoid storing secrets in
 # version control.  The ``${VAR}`` syntax instructs the loader to
@@ -140,7 +144,9 @@ risk:
   stop_loss_pct: 0.05
   take_profit_pct: 0.1
   max_positions: 5
-  allow_short: false
+  allow_short: true
+  max_portfolio_exposure_pct: 2.0
+  max_leverage: 2.0
 
 # Schedule of recurring jobs.  A daily backtest is run at 08:00
 # server time.  A live trading loop runs every minute to evaluate

@@ -98,6 +98,7 @@ except Exception:
     _data_provider = DataProvider(data_dir_cfg)
 
 trade_mode_cfg = cfg.get("trade_mode") or "sandbox"
+trading_cfg = cfg.get("trading", {}) or {}
 _trader = Trader(
     token=tinkoff_token_cfg,
     account_id=tinkoff_cfg.get("account_id"),
@@ -105,6 +106,10 @@ _trader = Trader(
     trade_mode=trade_mode_cfg,
     telegram_token=(cfg.get("telegram", {}) or {}).get("token"),
     telegram_chat_id=(cfg.get("telegram", {}) or {}).get("chat_id"),
+    sandbox_token=tinkoff_cfg.get("sandbox_token"),
+    sandbox_account_id=tinkoff_cfg.get("account_id_sandbox"),
+    max_leverage=float(trading_cfg.get("leverage", 1.0)) if "leverage" in trading_cfg else 1.0,
+    allow_short=_to_bool(trading_cfg.get("allow_short"), default=True),
 )
 
 class TradeRequest(BaseModel):
