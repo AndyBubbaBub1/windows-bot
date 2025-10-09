@@ -29,6 +29,7 @@ from moex_bot.core.monitoring import (
 )
 from moex_bot.core.logging_config import configure_logging
 from moex_bot.reporting.report_builder import generate_reports, send_telegram_message
+from moex_bot.core.strategy_selector import auto_select_strategies, format_selection_for_config
 
 
 def main() -> None:
@@ -47,8 +48,27 @@ def main() -> None:
     if not strategies:
         logger.warning("No valid strategies found in configuration; nothing to backtest.")
         return
+    # Margin / leverage configuration shared with risk manager
+    risk_cfg = cfg.get('risk') or {}
+    margin_cfg = risk_cfg.copy()
+    margin_cfg.update(cfg.get('margin') or {})
+    max_leverage = float(margin_cfg.get('max_leverage', 1.0) or 1.0)
+    borrow_rate_pct = float(margin_cfg.get('borrow_rate_pct', 0.0) or 0.0)
+    short_rate_cfg = margin_cfg.get('short_borrow_rate_pct', margin_cfg.get('short_fee_pct'))
+    short_rate_pct = float(short_rate_cfg) if short_rate_cfg is not None else None
+    periods_per_year = int(margin_cfg.get('financing_periods_per_year', margin_cfg.get('periods_per_year', 252)) or 252)
+    borrow_rate = borrow_rate_pct / 100.0
+    short_rate = short_rate_pct / 100.0 if short_rate_pct is not None else None
     # Run backtests using optional concurrency defined by MOEX_BACKTEST_WORKERS
-    results = run_backtests(data_glob, strategies, start_capital)
+    results = run_backtests(
+        data_glob,
+        strategies,
+        start_capital,
+        leverage=max_leverage,
+        borrow_rate=borrow_rate,
+        short_rate=short_rate,
+        periods_per_year=periods_per_year,
+    )
     if results.empty:
         logger.warning("No data matched the glob pattern; nothing to backtest.")
         return
@@ -58,6 +78,43 @@ def main() -> None:
     # Generate standard backtest reports (CSV/HTML/JSON/Parquet)
     generate_reports(results, data_glob, strategies, out_dir, start_capital)
     logger.info(f"Reports generated in {out_dir}")
+
+    # Auto-select strategies and propose portfolio allocations
+    auto_cfg = cfg.get('auto_selector') or {}
+    try:
+        auto_df = auto_select_strategies(
+            results,
+            auto_cfg,
+            data_glob,
+            strategies,
+            start_capital,
+            max_leverage,
+            borrow_rate,
+            short_rate,
+            periods_per_year,
+            cfg.get('strategies', {}),
+        )
+    except Exception as auto_exc:
+        logger.warning(f"Failed to auto-select strategies: {auto_exc}")
+        auto_df = None
+    auto_files = []
+    if auto_df is not None and not auto_df.empty:
+        auto_csv = Path(out_dir) / 'auto_selected_strategies.csv'
+        auto_json = Path(out_dir) / 'auto_selected_strategies.json'
+        auto_df.to_csv(auto_csv, index=False)
+        auto_df.to_json(auto_json, orient='records', force_ascii=False)
+        auto_files.extend([auto_csv, auto_json])
+        try:
+            import yaml
+
+            snippet = format_selection_for_config(auto_df, cfg.get('strategies', {}))
+            auto_yaml = Path(out_dir) / 'auto_selected_config.yaml'
+            with open(auto_yaml, 'w', encoding='utf-8') as fh:
+                yaml.safe_dump(snippet, fh, sort_keys=False, allow_unicode=True)
+            auto_files.append(auto_yaml)
+        except Exception as yaml_exc:
+            logger.debug(f"Failed to write auto-selected config snippet: {yaml_exc}")
+        logger.info("Auto-selected strategy bundle generated.")
 
     # ------------------------------------------------------------------
     # Walk‑forward / out‑of‑sample evaluation
@@ -170,13 +227,20 @@ def main() -> None:
     save_report_entry(db_path, None, 'csv', str(Path(out_dir)/'backtest_report.csv'))
     save_report_entry(db_path, None, 'csv', str(Path(out_dir)/'best_strategies_top3.csv'))
     save_report_entry(db_path, None, 'html', str(Path(out_dir)/'auto_report.html'))
+    for auto_file in auto_files:
+        save_report_entry(db_path, None, auto_file.suffix.lstrip('.'), str(auto_file))
     # Telegram notification
     telegram_cfg = cfg.get('telegram') or {}
     token = telegram_cfg.get('token')
     chat_id = telegram_cfg.get('chat_id')
     if token and chat_id:
         text = f"Backtests complete. Files: {len(results['file'].unique())}"
-        files = [Path(out_dir)/'backtest_report.csv', Path(out_dir)/'best_strategies_top3.csv', Path(out_dir)/'auto_report.html']
+        files = [
+            Path(out_dir)/'backtest_report.csv',
+            Path(out_dir)/'best_strategies_top3.csv',
+            Path(out_dir)/'auto_report.html',
+        ]
+        files.extend(auto_files)
         try:
             send_telegram_message(text, files, token, chat_id)
             logger.info("Telegram notification sent.")

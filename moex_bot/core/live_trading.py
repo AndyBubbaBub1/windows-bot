@@ -73,6 +73,9 @@ class LiveTrader:
         """
         if self.risk_manager is None:
             return
+        pos = self.risk_manager.positions.get(ticker)
+        if pos is not None:
+            pos['last_price'] = current_price
         if self.risk_manager.check_exit(ticker, current_price):
             # For simplicity we assume sell at market price
             self.sell(ticker, lots=int(self.risk_manager.positions.get(ticker, {}).get('quantity', 0)), limit_price=current_price)

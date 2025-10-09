@@ -16,17 +16,38 @@ def test_daily_loss_limit_triggers_halt() -> None:
 
 
 def test_allowed_position_size_respects_portfolio_exposure() -> None:
-    """Allowed position size should not exceed portfolio exposure limit."""
+    """Allowed position size should respect portfolio exposure and leverage caps."""
     rm = RiskManager(
         initial_capital=10000.0,
         max_position_pct=0.5,
         max_portfolio_exposure_pct=0.5,
+        max_leverage=1.0,
         stop_loss_pct=0.1,
     )
     price = 100.0
     size1 = rm.allowed_position_size(price)
-    # Enter the first position
     rm.register_entry('TEST', price, size1)
-    # Allowed size for a second position should be reduced due to exposure
     size2 = rm.allowed_position_size(price)
     assert size2 <= size1
+
+
+def test_leverage_allows_additional_capacity() -> None:
+    """When leverage is enabled the manager should allow additional exposure."""
+    rm = RiskManager(
+        initial_capital=10000.0,
+        max_position_pct=1.0,
+        per_trade_risk_pct=0.1,
+        stop_loss_pct=0.05,
+        max_leverage=2.0,
+    )
+    price = 100.0
+    size1 = rm.allowed_position_size(price)
+    assert size1 > 0
+    rm.register_entry('AAA', price, size1)
+    # With leverage>1 we should still be able to open another position
+    size2 = rm.allowed_position_size(price)
+    assert size2 > 0
+    rm.register_entry('BBB', price, size2)
+    # Now exposure should be capped
+    size3 = rm.allowed_position_size(price)
+    assert size3 == 0

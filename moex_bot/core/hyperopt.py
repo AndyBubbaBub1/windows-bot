@@ -61,6 +61,10 @@ def hyperparameter_search(
     strategy_class: Type,
     param_grid: Dict[str, Iterable[Any]],
     start_capital: float = 1_000_000.0,
+    leverage: float = 1.0,
+    borrow_rate: float = 0.0,
+    short_rate: float | None = None,
+    periods_per_year: int = 252,
 ) -> pd.DataFrame:
     """Evaluate a grid of hyperparameter combinations for a strategy.
 
@@ -115,9 +119,26 @@ def hyperparameter_search(
             continue
         # Cap signals to +/-1 and forward fill flat positions
         pos = signals.replace(0.0, np.nan).ffill().fillna(0.0).clip(-1.0, 1.0)
-        strat_ret = pos.shift(1).fillna(0.0) * returns
+        shifted_pos = pos.shift(1).fillna(0.0)
+        effective_pos = shifted_pos * leverage
+        strat_ret = effective_pos * returns
+        if borrow_rate or short_rate:
+            periods = max(int(periods_per_year), 1)
+            borrow_rate_per_period = borrow_rate / periods
+            short_rate_per_period = (short_rate if short_rate is not None else borrow_rate) / periods
+            borrowed_ratio = np.clip(np.abs(effective_pos) - 1.0, 0.0, None)
+            financing_cost = np.zeros_like(strat_ret)
+            long_mask = effective_pos > 0
+            short_mask = effective_pos < 0
+            if np.any(long_mask) and borrow_rate_per_period:
+                financing_cost[long_mask] = borrowed_ratio[long_mask] * borrow_rate_per_period
+            if np.any(short_mask) and short_rate_per_period:
+                financing_cost[short_mask] = np.abs(effective_pos[short_mask]) * short_rate_per_period
+            strat_ret = strat_ret - financing_cost
         try:
-            metrics = evaluate_strategy(strat_ret, signals, start_capital)
+            metrics = evaluate_strategy(strat_ret, np.sign(shifted_pos), start_capital, periods_per_year=periods_per_year)
+            metrics['avg_leverage'] = float(np.mean(np.abs(effective_pos))) if effective_pos.size else 0.0
+            metrics['max_leverage'] = float(np.max(np.abs(effective_pos))) if effective_pos.size else 0.0
         except Exception:
             continue
         results.append(HyperoptResult(params=params, metrics=metrics))
