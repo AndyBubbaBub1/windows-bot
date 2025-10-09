@@ -8,12 +8,12 @@ configuration.
 """
 
 from __future__ import annotations
-from dotenv import load_dotenv
-load_dotenv()
 
-from pathlib import Path
-import os
 import logging
+import os
+from pathlib import Path
+
+from dotenv import load_dotenv
 
 # Note: The moex_bot package must be installed (e.g. via ``pip install -e .``)
 # for these imports to resolve without modifying sys.path.  See ``setup.py``
@@ -32,6 +32,7 @@ from moex_bot.reporting.report_builder import generate_reports, send_telegram_me
 
 
 def main() -> None:
+    load_dotenv()
     # Configure logging once at script entry
     configure_logging()
     logger = logging.getLogger(__name__)
@@ -42,7 +43,6 @@ def main() -> None:
     # Resolve glob relative to project root
     project_root = Path(__file__).resolve().parent
     data_glob = str(project_root / data_glob_cfg)
-    strategies_cfg = cfg.get('strategies', [])
     strategies = load_strategies_from_config(cfg)
     if not strategies:
         logger.warning("No valid strategies found in configuration; nothing to backtest.")
@@ -139,7 +139,6 @@ def main() -> None:
             except Exception:
                 pass
     # Update portfolio equity gauge using last value from portfolio equity curve file
-    port_equity_file = Path(out_dir) / 'portfolio_equity.png'
     # To update gauge we need numeric value; approximate using metrics file
     metrics_file = Path(out_dir) / 'portfolio_metrics.csv'
     if metrics_file.exists():

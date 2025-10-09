@@ -17,13 +17,20 @@ Example usage:
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List
 
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+import requests
+
+from ..core.metrics import evaluate_strategy
+from ..core.portfolio import (
+    compute_correlation_matrix,
+    compute_capital_allocation,
+    compute_portfolio_metrics,
+)
 
 STRATEGY_LABELS = {
     "sma_strategy": "Скользящие средние (SMA)",
@@ -43,21 +50,13 @@ METRIC_LABELS = {
 }
 def translate_name(name: str) -> str:
     return STRATEGY_LABELS.get(name, name)
+
+
 def translate_metrics_df(df: pd.DataFrame) -> pd.DataFrame:
     cols = [METRIC_LABELS.get(c, c) for c in df.columns]
     out = df.copy()
     out.columns = cols
     return out
-
-import requests
-
-from ..core.metrics import compute_trades_count, evaluate_strategy
-from ..core.portfolio import (
-    compute_correlation_matrix,
-    compute_capital_allocation,
-    compute_portfolio_metrics,
-    aggregate_returns,
-)
 
 def _compute_equity(df: pd.DataFrame, strategy_fn, start_capital: float) -> pd.Series:
     """Compute equity curve for a single strategy.

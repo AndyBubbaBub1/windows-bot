@@ -10,8 +10,10 @@ position is held constant.
 
 from __future__ import annotations
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+from .base import BaseStrategy
 
 # Exported strategy name.  This constant is referenced by the loader
 # and report builder.  Do not modify without updating the configuration.
@@ -42,9 +44,6 @@ def strategy(df: pd.DataFrame, period: int = 10, multiplier: float = 3.0) -> pd.
         Series of signals: 1 (long), -1 (short), 0 (flat).
     """
     return SuperTrendStrategy(period=period, multiplier=multiplier).generate_signals(df)
-
-
-from .base import BaseStrategy
 
 
 class SuperTrendStrategy(BaseStrategy):
@@ -120,6 +119,3 @@ class SuperTrendStrategy(BaseStrategy):
 
 
 __all__ = ['STRATEGY_NAME', 'strategy', 'SuperTrendStrategy']
-
-
-__all__ = ['STRATEGY_NAME', 'strategy']

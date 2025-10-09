@@ -10,8 +10,8 @@ other cases the position is flat.
 from __future__ import annotations
 
 import pandas as pd
-import numpy as np
 
+from .base import BaseStrategy
 
 # Exported strategy name.  This constant is referenced by the loader
 # and report builder.  Do not modify without updating the configuration.
@@ -58,9 +58,6 @@ def strategy(df: pd.DataFrame, period: int = 14, adx_threshold: float = 20.0) ->
         Series of signals: 1 (long), -1 (short), 0 (flat).
     """
     return ADXTrendStrategy(period=period, adx_threshold=adx_threshold).generate_signals(df)
-
-
-from .base import BaseStrategy
 
 
 class ADXTrendStrategy(BaseStrategy):

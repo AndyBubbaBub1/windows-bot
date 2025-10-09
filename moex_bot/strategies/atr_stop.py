@@ -10,8 +10,10 @@ breakout systems.
 
 from __future__ import annotations
 
-import pandas as pd
 import numpy as np
+import pandas as pd
+
+from .base import BaseStrategy
 
 # Exported strategy name.  This constant is referenced by the loader
 # and report builder.  Do not modify without updating the configuration.
@@ -42,9 +44,6 @@ def strategy(df: pd.DataFrame, atr_period: int = 14, atr_mult: float = 3.0) -> p
         Series of signals: 1 for long, -1 for short, 0 for flat.
     """
     return ATRStopStrategy(atr_period=atr_period, atr_mult=atr_mult).generate_signals(df)
-
-
-from .base import BaseStrategy
 
 
 class ATRStopStrategy(BaseStrategy):

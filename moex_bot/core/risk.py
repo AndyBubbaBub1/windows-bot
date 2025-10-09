@@ -10,7 +10,7 @@ to exit trades when risk thresholds are breached.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict
 import datetime
 import logging
 
@@ -122,9 +122,13 @@ class RiskManager:
             total_value = 0.0
             for sym, pos in self.positions.items():
                 try:
-                    total_value += abs(pos['quantity']) * price
+                    entry_price = float(pos.get('entry_price', price))
+                    quantity = float(pos.get('quantity', 0.0))
                 except Exception:
                     continue
+                if entry_price <= 0:
+                    continue
+                total_value += abs(quantity) * entry_price
             allowed_portfolio_value = max(
                 0.0,
                 (self.portfolio_equity * self.max_portfolio_exposure_pct) - total_value,

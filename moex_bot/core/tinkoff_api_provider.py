@@ -15,6 +15,8 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 from typing import Optional, List
 
+import pandas as pd
+
 try:
     from tinkoff.invest import Client, CandleInterval
 except Exception:
@@ -82,14 +84,13 @@ class TinkoffAPIProvider(DataProvider):
         except Exception:
             return None
 
-    def load_history(self, symbol: str, interval: str = 'hour', days: int = 90) -> 'pd.DataFrame':  # type: ignore[override]
+    def load_history(self, symbol: str, interval: str = 'hour', days: int = 90) -> pd.DataFrame:  # type: ignore[override]
         """Return historical price data for the given symbol.
 
         Attempts to fetch candles from the API first; if that fails
         falls back to the parent implementation which reads from
         CSV files.
         """
-        import pandas as pd  # local import to avoid global dependency
         # Try API
         candles = self._fetch_candles(symbol, interval, days)
         if candles:

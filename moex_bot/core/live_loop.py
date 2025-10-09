@@ -14,7 +14,8 @@ recent price.  When integrated with a real broker API the
 from __future__ import annotations
 
 import logging
-from typing import Dict, Any, Optional, Iterable
+from pathlib import Path
+from typing import Dict, Any, Optional
 
 import pandas as pd
 

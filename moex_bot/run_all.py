@@ -1,4 +1,5 @@
-import sys, subprocess
+import subprocess
+import sys
 
 def main():
     subprocess.run([sys.executable, '-m', 'moex_bot.run_backtests'], check=False)

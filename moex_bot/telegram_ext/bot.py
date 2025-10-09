@@ -1,6 +1,7 @@
 from __future__ import annotations
 import os
-from typing import List, Optional
+from pathlib import Path
+from typing import List
 from dataclasses import dataclass
 
 from telegram import Update

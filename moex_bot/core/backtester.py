@@ -23,15 +23,12 @@ Example:
 from __future__ import annotations
 
 import glob
-import os
-from pathlib import Path
-from typing import Callable, Dict, Iterable, Tuple, Any
+from typing import Callable, Dict, Tuple, Any
 
 import numpy as np
 import pandas as pd
 
 from .metrics import evaluate_strategy
-from .config import load_config
 
 
 def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.DataFrame], pd.Series]) -> Tuple[np.ndarray, np.ndarray]:

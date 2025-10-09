@@ -10,11 +10,13 @@ additional technical indicators could be incorporated.
 
 from __future__ import annotations
 
-import pandas as pd
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
 from sklearn.pipeline import Pipeline
+from sklearn.preprocessing import StandardScaler
+
+from .base import BaseStrategy
 
 STRATEGY_NAME = 'ml_predict'
 
@@ -70,9 +72,6 @@ def strategy(df: pd.DataFrame, train_size: float = 0.7) -> pd.Series:
     signal = pd.Series(0, index=df.index)
     signal.iloc[split:] = y_pred
     return signal
-
-
-from .base import BaseStrategy
 
 
 class MLPredictStrategy(BaseStrategy):
