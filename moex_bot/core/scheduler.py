@@ -13,11 +13,13 @@ automatically.  Users can import ``create_scheduler`` in their
 from __future__ import annotations
 
 from typing import Callable, Dict, Any
+
 from apscheduler.schedulers.background import BackgroundScheduler
 from apscheduler.triggers.cron import CronTrigger
-import logging
+import structlog
 
-from .config import load_config
+
+logger = structlog.get_logger(__name__)
 
 
 def create_scheduler(cfg: Dict[str, Any]) -> BackgroundScheduler:
@@ -46,12 +48,12 @@ def create_scheduler(cfg: Dict[str, Any]) -> BackgroundScheduler:
             mod = __import__(module_name, fromlist=[func_name])
             func: Callable = getattr(mod, func_name)
         except Exception as e:
-            logging.error(f"Failed to import scheduled function '{func_path}': {e}")
+            logger.error("failed to import scheduled function", func=func_path, error=str(e))
             continue
         try:
             trigger = CronTrigger(**cron) if isinstance(cron, dict) else CronTrigger.from_crontab(cron)
         except Exception as e:
-            logging.error(f"Invalid cron definition for job '{name}': {e}")
+            logger.error("invalid cron definition", job=name, error=str(e))
             continue
         sched.add_job(func, trigger, args=args, kwargs=kwargs, id=name, name=name)
     return sched

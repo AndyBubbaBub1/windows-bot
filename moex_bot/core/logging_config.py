@@ -1,40 +1,84 @@
-"""Centralised logging configuration for the MOEX bot.
+"""Structured logging configuration for the MOEX bot.
 
-This module provides a single function, :func:`configure_logging`,
-which sets up the Python logging system with a consistent format and
-verbosity.  All top‑level scripts should call this function at
-startup so that log messages across the project have the same
-appearance.  By default, the logging level is set to ``INFO`` and
-the format includes a timestamp, log level, logger name and message.
+This module configures :mod:`structlog` together with the standard
+logging module so that every log message is emitted as JSON.  The JSON
+format is easy to ingest by log aggregation systems such as ELK or
+ClickHouse and keeps contextual information like module name, log
+level, timestamp and stack traces.
 
-Usage:
-
-.. code-block:: python
-
-    from moex_bot.core.logging_config import configure_logging
-    configure_logging(level=logging.DEBUG)
-
+All entry points of the project should call :func:`configure_logging`
+once during start-up.  The configuration is idempotent – calling it
+multiple times simply reconfigures structlog with the provided
+parameters.
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Optional
+from typing import Any, Iterable, Mapping, MutableMapping, Optional
+
+import structlog
 
 
-def configure_logging(level: int = logging.INFO, fmt: Optional[str] = None) -> None:
-    """Configure the root logger with a standard format and level.
+def _rename_event_key(_: structlog.types.WrappedLogger,
+                      __: str,
+                      event_dict: MutableMapping[str, Any]) -> MutableMapping[str, Any]:
+    """Rename ``event`` key to ``message`` for nicer JSON output."""
 
-    This function calls :func:`logging.basicConfig` with a predefined
-    format and date format.  If the root logger already has handlers,
-    this call has no effect.  Call this function at the beginning
-    of any script or entry point to ensure consistent logging.
+    event = event_dict.pop("event", None)
+    if event is not None:
+        event_dict["message"] = event
+    return event_dict
+
+
+def configure_logging(level: int = logging.INFO,
+                      json_logs: bool = True,
+                      extra_processors: Optional[Iterable[structlog.types.Processor]] = None) -> None:
+    """Configure structlog and standard logging.
 
     Args:
-        level: Logging level, e.g. ``logging.INFO`` or ``logging.DEBUG``.
-        fmt: Optional log format string.  If ``None`` the default
-            ``'%(asctime)s [%(levelname)s] %(name)s: %(message)s'`` is used.
+        level: Minimum log level for the root logger.
+        json_logs: If ``True`` use :class:`structlog.processors.JSONRenderer`,
+            otherwise use :class:`structlog.dev.ConsoleRenderer`.
+        extra_processors: Optional iterable of additional structlog
+            processors appended to the default pipeline.
     """
-    format_str = fmt or '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
-    date_fmt = '%Y-%m-%d %H:%M:%S'
-    logging.basicConfig(level=level, format=format_str, datefmt=date_fmt)
+
+    logging.basicConfig(level=level, format="%(message)s")
+
+    timestamper = structlog.processors.TimeStamper(fmt="iso", utc=True)
+    shared_processors: list[structlog.types.Processor] = [
+        structlog.contextvars.merge_contextvars,
+        structlog.processors.add_log_level,
+        timestamper,
+        structlog.processors.StackInfoRenderer(),
+        structlog.processors.format_exc_info,
+        _rename_event_key,
+    ]
+    if extra_processors:
+        shared_processors.extend(extra_processors)
+
+    renderer: structlog.types.Processor
+    if json_logs:
+        renderer = structlog.processors.JSONRenderer()
+    else:
+        renderer = structlog.dev.ConsoleRenderer()
+
+    structlog.configure(
+        processors=[
+            *shared_processors,
+            renderer,
+        ],
+        wrapper_class=structlog.make_filtering_bound_logger(level),
+        cache_logger_on_first_use=True,
+    )
+
+
+def bind_context(**kwargs: Any) -> Mapping[str, Any]:
+    """Bind contextual information to the current logging context."""
+
+    structlog.contextvars.bind_contextvars(**kwargs)
+    return kwargs
+
+
+__all__ = ["configure_logging", "bind_context"]

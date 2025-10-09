@@ -12,9 +12,13 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Dict, Optional
 import datetime
-import logging
 
-logger = logging.getLogger(__name__)
+import structlog
+
+from .alerts import AlertDispatcher
+from .monitoring import record_risk_limit_breach
+
+logger = structlog.get_logger(__name__)
 
 @dataclass
 class RiskManager:
@@ -44,6 +48,7 @@ class RiskManager:
     peak_equity: float = field(init=False)
     day_start_equity: float = field(init=False)
     positions: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    alert_dispatcher: AlertDispatcher | None = field(default=None, repr=False)
 
     def __post_init__(self) -> None:
         self.portfolio_equity = self.initial_capital
@@ -52,6 +57,11 @@ class RiskManager:
         self.day_start_equity = self.initial_capital
         # Set the last equity date to today when the manager is created
         self.last_equity_date = datetime.date.today()
+        if self.alert_dispatcher is None:
+            try:
+                self.alert_dispatcher = AlertDispatcher()
+            except Exception:
+                self.alert_dispatcher = None
 
     def update_equity(self, new_equity: float) -> None:
         """Update internal equity tracking and check drawdown limit."""
@@ -74,6 +84,7 @@ class RiskManager:
             )
             # send alert on drawdown breach
             self._send_alert(f"📉 Максимальная просадка превышена: {drawdown:.2%}. Торговля остановлена.")
+            record_risk_limit_breach('max_drawdown')
             # In a real implementation this could trigger halting all trading.
         # Compute daily loss relative to the start of the day
         daily_loss = (self.day_start_equity - new_equity) / max(self.day_start_equity, 1e-9)
@@ -89,6 +100,7 @@ class RiskManager:
             self._send_alert(
                 f"⚠️ Дневной лимит потерь превышен: {daily_loss:.2%}. Торговля остановлена до конца дня."
             )
+            record_risk_limit_breach('max_daily_loss')
 
     def allowed_position_size(self, price: float) -> int:
         """Compute the maximum number of shares/lots allowed per trade.
@@ -122,7 +134,8 @@ class RiskManager:
             total_value = 0.0
             for sym, pos in self.positions.items():
                 try:
-                    total_value += abs(pos['quantity']) * price
+                    mark = pos.get('last_price') or pos.get('entry_price') or price
+                    total_value += abs(pos['quantity']) * float(mark)
                 except Exception:
                     continue
             allowed_portfolio_value = max(
@@ -177,6 +190,7 @@ class RiskManager:
             'stop_price': stop_price,
             'take_profit': take_profit,
             'trailing_stop': trailing_stop,
+            'last_price': price,
         }
         direction = "short" if is_short else "long"
         logger.info(f"Entered {direction} position {symbol} at {price} x{abs(quantity)}")
@@ -202,6 +216,7 @@ class RiskManager:
             return False
         quantity = pos['quantity']
         is_short = quantity < 0
+        pos['last_price'] = current_price
         if not is_short:
             # Long position: update trailing stop upward if price increases
             new_trailing = current_price * (1 - self.stop_loss_pct)
@@ -257,18 +272,15 @@ class RiskManager:
         Args:
             message: Text of the notification to send.
         """
-        try:
-            import os
-            import requests  # type: ignore
-
-            token = os.getenv("TELEGRAM_TOKEN") or os.getenv("TELEGRAM_BOT_TOKEN")
-            chat_id = os.getenv("TELEGRAM_CHAT_ID")
-            if not token or not chat_id:
+        if not message:
+            return
+        if self.alert_dispatcher:
+            try:
+                self.alert_dispatcher.send(message)
                 return
-            url = f"https://api.telegram.org/bot{token}/sendMessage"
-            requests.post(url, data={"chat_id": chat_id, "text": message})
-        except Exception as e:
-            logger.error(f"Failed to send Telegram alert: {e}")
+            except Exception as exc:  # pragma: no cover - logging side effect
+                logger.warning('failed to send alert', error=str(exc))
+        logger.debug('alert dispatcher unavailable', message=message)
 
 
 __all__ = ['RiskManager']

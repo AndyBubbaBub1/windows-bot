@@ -21,6 +21,10 @@ backtest_runs_total = Counter('backtest_runs_total', 'Total number of backtest e
 portfolio_equity_gauge = Gauge('portfolio_equity', 'Latest portfolio equity value')
 strategy_pnl_gauge = Gauge('strategy_pnl', 'Latest PnL percentage per strategy', ['strategy'])
 error_counter = Counter('moex_bot_errors_total', 'Total number of errors encountered')
+order_submissions_total = Counter('moex_bot_order_submissions_total', 'Total number of order submissions', ['side'])
+outstanding_orders_gauge = Gauge('moex_bot_outstanding_orders', 'Number of outstanding broker orders')
+risk_limit_breaches_total = Counter('moex_bot_risk_limit_breaches_total', 'Total risk limit breaches', ['type'])
+alert_dispatch_counter = Counter('moex_bot_alerts_sent_total', 'Total alerts dispatched', ['channel'])
 
 def init_prometheus_server(port: int = 8001) -> None:
     """Start an HTTP server to expose Prometheus metrics.
@@ -71,7 +75,28 @@ def record_error() -> None:
     error_counter.inc()
 
 
+def record_order_submission(side: str) -> None:
+    """Record a submitted order for Prometheus."""
+    order_submissions_total.labels(side=side).inc()
+
+
+def set_outstanding_orders(count: float) -> None:
+    """Set the gauge representing outstanding broker orders."""
+    outstanding_orders_gauge.set(count)
+
+
+def record_risk_limit_breach(breach_type: str) -> None:
+    """Increment the risk limit breach counter."""
+    risk_limit_breaches_total.labels(type=breach_type).inc()
+
+
+def record_alert_dispatch(channel: str) -> None:
+    """Increment the alert dispatch counter."""
+    alert_dispatch_counter.labels(channel=channel).inc()
+
+
 __all__ = [
     'init_prometheus_server', 'record_backtest_run', 'update_portfolio_equity',
-    'update_strategy_pnl', 'record_error'
+    'update_strategy_pnl', 'record_error', 'record_order_submission',
+    'set_outstanding_orders', 'record_risk_limit_breach', 'record_alert_dispatch'
 ]

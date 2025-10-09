@@ -10,7 +10,8 @@ scheduler.
 from __future__ import annotations
 
 import time
-import logging
+
+import structlog
 
 # Note: The moex_bot package must be installed (e.g. via ``pip install -e .``)
 # for these imports to resolve without modifying sys.path.  See ``setup.py``
@@ -24,7 +25,7 @@ def main() -> None:
     """Run the APScheduler based on the schedule defined in the config."""
     # Configure consistent logging
     configure_logging()
-    logger = logging.getLogger(__name__)
+    logger = structlog.get_logger(__name__)
     cfg = load_config()
     logger.info("Loaded config.yaml for scheduler")
 

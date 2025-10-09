@@ -13,7 +13,7 @@ recent price.  When integrated with a real broker API the
 
 from __future__ import annotations
 
-import logging
+import structlog
 from typing import Dict, Any, Optional, Iterable
 
 import pandas as pd
@@ -23,12 +23,13 @@ from .backtester import load_strategies_from_config
 from .data_provider import DataProvider
 from .tinkoff_stream_provider import TinkoffStreamProvider
 from .broker import Trader
+from .alerts import AlertDispatcher
 from ..reporting.report_builder import send_telegram_message
 from .risk import RiskManager
 from .portfolio_manager import PortfolioManager
 from .telegram_bot import TelegramBot
 
-logger = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 
 RUNNING: bool = False
 TRADE_MODE: str = "sandbox"
@@ -175,11 +176,13 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
         initial_capital_float = 1_000_000.0
     # Extract risk parameters from configuration; unknown keys will be ignored
     risk_cfg = cfg.get('risk') or {}
+    alerts_cfg = cfg.get('alerts') if isinstance(cfg, dict) else {}
+    dispatcher = AlertDispatcher.from_config(alerts_cfg if isinstance(alerts_cfg, dict) else None)
     try:
-        risk_manager = RiskManager(initial_capital=initial_capital_float, **risk_cfg)
+        risk_manager = RiskManager(initial_capital=initial_capital_float, alert_dispatcher=dispatcher, **risk_cfg)
     except TypeError:
         # If unexpected keys are provided, fall back to defaults
-        risk_manager = RiskManager(initial_capital=initial_capital_float)
+        risk_manager = RiskManager(initial_capital=initial_capital_float, alert_dispatcher=dispatcher)
 
     # Optional portfolio manager setup
     portfolio_cfg = cfg.get('portfolio', {}) or {}
