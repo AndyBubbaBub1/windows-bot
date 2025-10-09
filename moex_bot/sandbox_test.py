@@ -1,9 +1,8 @@
-from tinkoff.invest import Client, MoneyValue
-from tinkoff.invest.services import SandboxService
-
 TOKEN = "t.VtxWp5QjcwbIQuqg7DYFFocZgtTRN2ofhqisP3cW8SptzsxLzuny5n2LILOjbVm7_o0PgWrFcDWKBAjQk5oqFA"  # вставь сюда свой песочничный токен
 
 def main():
+    from tinkoff.invest import Client, MoneyValue
+
     with Client(TOKEN) as client:
         print("=== Проверка sandbox аккаунтов ===")
 
