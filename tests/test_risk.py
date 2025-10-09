@@ -18,15 +18,20 @@ def test_daily_loss_limit_triggers_halt() -> None:
 def test_allowed_position_size_respects_portfolio_exposure() -> None:
     """Allowed position size should not exceed portfolio exposure limit."""
     rm = RiskManager(
-        initial_capital=10000.0,
-        max_position_pct=0.5,
-        max_portfolio_exposure_pct=0.5,
+        initial_capital=10_000.0,
+        max_position_pct=1.0,
+        max_portfolio_exposure_pct=0.2,
+        per_trade_risk_pct=1.0,
         stop_loss_pct=0.1,
     )
-    price = 100.0
-    size1 = rm.allowed_position_size(price)
-    # Enter the first position
-    rm.register_entry('TEST', price, size1)
-    # Allowed size for a second position should be reduced due to exposure
-    size2 = rm.allowed_position_size(price)
-    assert size2 <= size1
+    first_price = 100.0
+    first_size = rm.allowed_position_size(first_price)
+    # Enter the first position and fully consume the exposure budget.
+    rm.register_entry("FIRST", first_price, first_size)
+    assert first_size > 0
+
+    # Exposure is exhausted, so the second instrument should be rejected.
+    second_price = 50.0
+    second_size = rm.allowed_position_size(second_price)
+    assert second_size == 0
+
