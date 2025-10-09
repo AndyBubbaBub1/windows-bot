@@ -35,6 +35,7 @@ moex-live = "moex_bot.run_live:main"
 moex-backtests = "moex_bot.run_backtests:main"
 moex-server = "moex_bot.run_server:main"
 moex-all = "moex_bot.run_all:main"
+moex-diagnostics = "moex_bot.run_diagnostics:main"
 
 [tool.black]
 line-length = 100

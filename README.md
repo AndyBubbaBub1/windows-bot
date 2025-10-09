@@ -16,6 +16,7 @@ pip install -e .
 - `moex-backtests` — бэктесты
 - `moex-server` — веб-сервер (FastAPI/Uvicorn)
 - `moex-all` — последовательный запуск (бэктест → сервер → планировщик)
+- `moex-diagnostics` — проверка окружения и подключения к Tinkoff
 
 ## Windows автонастройка
 Запустите `setup_env.bat` (двойной клик) — создаст venv и установит пакет.
@@ -49,6 +50,20 @@ pip install -e .
 
 ## Шорты
 Контролируйте через `allow_short` в `config.yaml`.
+
+## Плечо и маржинальная торговля
+- `margin.max_leverage` — желаемое плечо в бэктестах (используется и в риск-менеджере).
+- `margin.borrow_rate_pct` / `margin.short_borrow_rate_pct` — годовые ставки за заёмное плечо (учитываются в доходности).
+- В отчётах появляются поля `avg_leverage` и `max_leverage`, а риск-менеджер контролирует совокупную экспозицию.
+
+## Автоподбор стратегий
+- Блок `auto_selector` в `config.yaml` управляет фильтрацией по Sharpe/просадке и диверсификацией.
+- После `moex-backtests` в `results/` появляются файлы `auto_selected_strategies.(csv|json)` и `auto_selected_config.yaml` с готовой конфигурацией и весами.
+- Включите `auto_selector.hyperopt.enabled` и добавьте `per_strategy` с сеткой параметров, чтобы дополнительно прогонять `hyperopt`.
+
+## Диагностика Windows/Tinkoff
+- Запустите `moex-diagnostics` (после `pip install -e .`) — проверяет наличие `setup_env.bat`, версию Python и доступность Tinkoff API.
+- Для проверки API положите токен в `.env` (`TINKOFF_TOKEN`) или переменные окружения.
 
 ## Подключение стриминга с резервом REST
 

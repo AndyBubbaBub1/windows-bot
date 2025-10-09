@@ -34,7 +34,14 @@ from .metrics import evaluate_strategy
 from .config import load_config
 
 
-def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.DataFrame], pd.Series]) -> Tuple[np.ndarray, np.ndarray]:
+def _prepare_returns_and_signals(
+    df: pd.DataFrame,
+    strategy_fn: Callable[[pd.DataFrame], pd.Series],
+    leverage: float = 1.0,
+    borrow_rate: float = 0.0,
+    short_rate: float | None = None,
+    periods_per_year: int = 252,
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Apply a strategy function to a DataFrame to obtain returns and signals.
 
     The strategy function should accept a DataFrame and return a pandas
@@ -47,9 +54,10 @@ def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.Dat
         strategy_fn: Callable that produces a signal series.
 
     Returns:
-        A tuple ``(returns, signals)`` where ``returns`` is a 1D numpy
-        array of periodic returns and ``signals`` is a 1D numpy array of
-        positions at the same timestamps.
+        A tuple ``(returns, raw_positions, effective_positions)`` where
+        ``returns`` is a 1D numpy array of leveraged strategy returns,
+        ``raw_positions`` are the original -1/0/1 signals shifted forward
+        one period and ``effective_positions`` reflects the applied leverage.
     """
     close = df['close'].astype(float)
     returns = close.pct_change().fillna(0.0).to_numpy()
@@ -57,15 +65,34 @@ def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.Dat
     # Position is carried forward; shift so that today's signal acts on next period
     pos = sig.replace(0.0, np.nan).ffill().fillna(0.0).clip(-1.0, 1.0)
     positions = pos.shift(1).fillna(0.0).to_numpy()
-    # Strategy returns are position * returns
-    strategy_returns = positions * returns
-    return strategy_returns, positions
+    effective_positions = positions * leverage
+    strategy_returns = effective_positions * returns
+    if borrow_rate or short_rate:
+        periods = max(int(periods_per_year), 1)
+        borrow_rate_per_period = borrow_rate / periods
+        short_rate_per_period = (short_rate if short_rate is not None else borrow_rate) / periods
+        borrowed_ratio = np.clip(np.abs(effective_positions) - 1.0, 0.0, None)
+        financing_cost = np.zeros_like(strategy_returns)
+        long_mask = effective_positions > 0
+        short_mask = effective_positions < 0
+        if np.any(long_mask) and borrow_rate_per_period:
+            financing_cost[long_mask] = borrowed_ratio[long_mask] * borrow_rate_per_period
+        if np.any(short_mask) and short_rate_per_period:
+            financing_cost[short_mask] = np.abs(effective_positions[short_mask]) * short_rate_per_period
+        strategy_returns = strategy_returns - financing_cost
+    return strategy_returns, positions, effective_positions
 
 
-def run_backtest_for_df(df: pd.DataFrame,
-                        strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
-                        start_capital: float,
-                        show: bool = False) -> pd.DataFrame:
+def run_backtest_for_df(
+    df: pd.DataFrame,
+    strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
+    start_capital: float,
+    show: bool = False,
+    leverage: float = 1.0,
+    borrow_rate: float = 0.0,
+    short_rate: float | None = None,
+    periods_per_year: int = 252,
+) -> pd.DataFrame:
     """Run multiple strategies on a single DataFrame and compute metrics.
 
     Args:
@@ -81,8 +108,17 @@ def run_backtest_for_df(df: pd.DataFrame,
     rows = []
     for name, fn in strategies.items():
         try:
-            r, pos = _prepare_returns_and_signals(df, fn)
-            metrics = evaluate_strategy(r, pos, start_capital)
+            r, pos, eff_pos = _prepare_returns_and_signals(
+                df,
+                fn,
+                leverage=leverage,
+                borrow_rate=borrow_rate,
+                short_rate=short_rate,
+                periods_per_year=periods_per_year,
+            )
+            metrics = evaluate_strategy(r, np.sign(pos), start_capital, periods_per_year=periods_per_year)
+            metrics['avg_leverage'] = float(np.mean(np.abs(eff_pos))) if eff_pos.size else 0.0
+            metrics['max_leverage'] = float(np.max(np.abs(eff_pos))) if eff_pos.size else 0.0
             rows.append({'strategy': name, **metrics})
         except Exception as e:
             rows.append({'strategy': name, 'error': str(e)})
@@ -95,9 +131,15 @@ def run_backtest_for_df(df: pd.DataFrame,
     return res.reset_index(drop=True)
 
 
-def _run_single_backtest(file_path: str,
-                         strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
-                         start_capital: float) -> pd.DataFrame:
+def _run_single_backtest(
+    file_path: str,
+    strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
+    start_capital: float,
+    leverage: float,
+    borrow_rate: float,
+    short_rate: float | None,
+    periods_per_year: int,
+) -> pd.DataFrame:
     """Helper to run a backtest on a single file.
 
     This helper function is defined at the top level so that it can
@@ -115,14 +157,29 @@ def _run_single_backtest(file_path: str,
         single file.
     """
     df = pd.read_csv(file_path)
-    res = run_backtest_for_df(df, strategies, start_capital, show=False)
+    res = run_backtest_for_df(
+        df,
+        strategies,
+        start_capital,
+        show=False,
+        leverage=leverage,
+        borrow_rate=borrow_rate,
+        short_rate=short_rate,
+        periods_per_year=periods_per_year,
+    )
     res.insert(0, 'file', file_path)
     return res
 
 
-def run_backtests(glob_pattern: str,
-                  strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
-                  start_capital: float) -> pd.DataFrame:
+def run_backtests(
+    glob_pattern: str,
+    strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
+    start_capital: float,
+    leverage: float = 1.0,
+    borrow_rate: float = 0.0,
+    short_rate: float | None = None,
+    periods_per_year: int = 252,
+) -> pd.DataFrame:
     """Run backtests on all files matching a glob pattern.
 
     This function can optionally leverage multiple worker threads to
@@ -161,7 +218,19 @@ def run_backtests(glob_pattern: str,
         from concurrent.futures import ThreadPoolExecutor
         max_workers = min(workers, len(files))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_run_single_backtest, f, strategies, start_capital) for f in files]
+            futures = [
+                executor.submit(
+                    _run_single_backtest,
+                    f,
+                    strategies,
+                    start_capital,
+                    leverage,
+                    borrow_rate,
+                    short_rate,
+                    periods_per_year,
+                )
+                for f in files
+            ]
             for fut in futures:
                 try:
                     res = fut.result()
@@ -174,7 +243,15 @@ def run_backtests(glob_pattern: str,
         # Sequential execution
         for f in files:
             try:
-                res = _run_single_backtest(f, strategies, start_capital)
+                res = _run_single_backtest(
+                    f,
+                    strategies,
+                    start_capital,
+                    leverage,
+                    borrow_rate,
+                    short_rate,
+                    periods_per_year,
+                )
                 results.append(res)
             except Exception as e:
                 err_df = pd.DataFrame([{'file': f, 'error': str(e)}])

@@ -5,6 +5,13 @@ results_path: results
 results_dir: results
 db_path: results/history.db
 
+# Margin and leverage settings used for backtests and live risk management.
+margin:
+  max_leverage: 2.0
+  borrow_rate_pct: 12.0
+  short_borrow_rate_pct: 15.0
+  financing_periods_per_year: 252
+
 # Trading mode selection.  One of ``live``, ``virtual`` or ``sandbox``.
 # In ``live`` mode orders are sent to the production Tinkoff API.
 # In ``virtual`` mode signals are generated using live data but
@@ -140,7 +147,11 @@ risk:
   stop_loss_pct: 0.05
   take_profit_pct: 0.1
   max_positions: 5
-  allow_short: false
+  allow_short: true
+  max_leverage: 2.0
+  borrow_rate_pct: 12.0
+  short_borrow_rate_pct: 15.0
+  financing_periods_per_year: 252
 
 # Schedule of recurring jobs.  A daily backtest is run at 08:00
 # server time.  A live trading loop runs every minute to evaluate
@@ -167,6 +178,18 @@ portfolio:
     arbitrage: 0.05
     news_sentiment: 0.05
     lstm_predict: 0.05
+
+# Automated strategy selection preferences used in backtest reporting.
+auto_selector:
+  enabled: true
+  top_n: 5
+  min_sharpe: 1.0
+  max_drawdown_pct: 0.2
+  diversify_by: file
+  top_per_group: 1
+  weight_metric: sharpe
+  hyperopt:
+    enabled: false
 
 # HTTP server configuration for the FastAPI dashboard.  By default
 # binds to localhost; override via environment variables
