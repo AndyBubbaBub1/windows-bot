@@ -1,9 +1,34 @@
-from tinkoff.invest import Client, MoneyValue
-from tinkoff.invest.services import SandboxService
+"""Utility script for working with a sandbox account.
+
+The original version unconditionally imported the ``tinkoff`` package.  The
+package is not installed in the test environment which caused an immediate
+``ModuleNotFoundError`` during module import, preventing the rest of the
+project's test suite from running.  To make the script more robust we now
+guard the optional dependency and only surface an informative error message
+when the script is executed directly.
+"""
+
+from __future__ import annotations
+
+from typing import Optional
+
+try:  # pragma: no cover - exercised indirectly via integration usage
+    from tinkoff.invest import Client, MoneyValue
+    from tinkoff.invest.services import SandboxService
+    _IMPORT_ERROR: Optional[ModuleNotFoundError] = None
+except ModuleNotFoundError as exc:  # pragma: no cover - exercised when optional dep missing
+    Client = MoneyValue = SandboxService = None  # type: ignore[assignment]
+    _IMPORT_ERROR = exc
 
 TOKEN = "t.VtxWp5QjcwbIQuqg7DYFFocZgtTRN2ofhqisP3cW8SptzsxLzuny5n2LILOjbVm7_o0PgWrFcDWKBAjQk5oqFA"  # вставь сюда свой песочничный токен
 
 def main():
+    if _IMPORT_ERROR is not None:
+        raise RuntimeError(
+            "The optional dependency 'tinkoff.invest' is required to work with "
+            "the sandbox. Install it with 'pip install tinkoff-investments'."
+        ) from _IMPORT_ERROR
+
     with Client(TOKEN) as client:
         print("=== Проверка sandbox аккаунтов ===")
 
