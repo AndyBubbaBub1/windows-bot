@@ -65,7 +65,11 @@ class Trader:
     def __init__(self, token: Optional[str], account_id: Optional[str], sandbox: bool = False,
                  trade_mode: Optional[str] = None,
                  telegram_token: Optional[str] = None,
-                 telegram_chat_id: Optional[str] = None) -> None:
+                 telegram_chat_id: Optional[str] = None,
+                 sandbox_token: Optional[str] = None,
+                 sandbox_account_id: Optional[str] = None,
+                 max_leverage: float = 1.0,
+                 allow_short: bool = True) -> None:
         self.token = token or ''
         self.account_id = account_id or ''
         # Determine operational mode
@@ -83,10 +87,21 @@ class Trader:
             # fallback to sandbox flag
             self.sandbox = bool(sandbox)
             self.virtual = False
+        # Apply sandbox overrides when applicable
+        self._sandbox_token = sandbox_token or ''
+        self._sandbox_account_id = sandbox_account_id or ''
+        if self.sandbox:
+            if self._sandbox_token:
+                self.token = self._sandbox_token
+            if self._sandbox_account_id:
+                self.account_id = self._sandbox_account_id
         self._client: Optional[Client] = None
         # Telegram configuration
         self.telegram_token = telegram_token or ''
         self.telegram_chat_id = telegram_chat_id or ''
+        # Trading preferences
+        self.max_leverage = max(1.0, float(max_leverage or 1.0))
+        self.allow_short = bool(allow_short)
         # If virtual mode or no token, operate in dry run
         if self.virtual or not self.token or Client is None:
             if not self.token:
@@ -137,7 +152,9 @@ class Trader:
             # Swallow any errors silently; we do not want to interrupt trading
             pass
 
-    def _submit_order(self, figi: str, lots: int, direction: int, limit_price: Optional[float] = None) -> None:
+    def _submit_order(self, figi: str, lots: int, direction: int,
+                      limit_price: Optional[float] = None,
+                      use_margin: bool = False) -> None:
         """Internal helper to submit an order through the API or log it.
 
         Args:
@@ -147,34 +164,30 @@ class Trader:
             limit_price: Optional price for limit orders; ``None`` for market.
         """
         order_id = self._generate_order_id('buy' if direction == 1 else 'sell', figi, lots)
+        margin_suffix = " [margin]" if use_margin else ""
         if self._client is None:
             # Dry‑run mode: just log the order and notify via Telegram if configured
-            logger.info(f"[DRY‑RUN] {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'} (sandbox={self.sandbox}) [order_id={order_id}]")
+            logger.info(f"[DRY‑RUN]{margin_suffix} {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'} (sandbox={self.sandbox}, leverage={self.max_leverage}) [order_id={order_id}]")
             self._notify_trade(direction, figi, lots, limit_price, order_id)
             return
         try:
             with self._client as client:
+                order_payload = {
+                    'account_id': self.account_id,
+                    'figi': figi,
+                    'quantity': lots,
+                    'price': None if limit_price is None else {'units': int(limit_price), 'nano': 0},
+                    'direction': direction,
+                    'order_type': 2,
+                    'order_id': order_id,
+                }
+                if use_margin:
+                    order_payload['order_type'] = 2  # market order; margin handled on broker side
                 if self.sandbox and hasattr(client, 'sandbox'):
-                    client.sandbox.post_sandbox_order(
-                        account_id=self.account_id,
-                        figi=figi,
-                        quantity=lots,
-                        price=None if limit_price is None else {'units': int(limit_price), 'nano': 0},
-                        direction=direction,
-                        order_type=2,  # 2 corresponds to MARKET orders in the SDK
-                        order_id=order_id,
-                    )
+                    client.sandbox.post_sandbox_order(**order_payload)
                 else:
-                    client.orders.post_order(
-                        account_id=self.account_id,
-                        figi=figi,
-                        quantity=lots,
-                        price=None if limit_price is None else {'units': int(limit_price), 'nano': 0},
-                        direction=direction,
-                        order_type=2,
-                        order_id=order_id,
-                    )
-            logger.info(f"Submitted order {order_id}: {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'}")
+                    client.orders.post_order(**order_payload)
+            logger.info(f"Submitted order {order_id}{margin_suffix}: {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'}")
             # Notify about the successful submission
             self._notify_trade(direction, figi, lots, limit_price, order_id)
         except Exception as e:
@@ -182,11 +195,33 @@ class Trader:
 
     def buy(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> None:
         """Place a buy order for the specified instrument."""
-        self._submit_order(figi, lots, direction=1, limit_price=limit_price)
+        self._submit_order(figi, lots, direction=1, limit_price=limit_price, use_margin=self.max_leverage > 1.0)
 
     def sell(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> None:
         """Place a sell order for the specified instrument."""
-        self._submit_order(figi, lots, direction=2, limit_price=limit_price)
+        self._submit_order(figi, lots, direction=2, limit_price=limit_price, use_margin=self.max_leverage > 1.0)
+
+    def open_short(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> None:
+        """Explicit helper to open a short position if allowed."""
+        if not self.allow_short:
+            logger.warning("Short trading disabled; skip open_short for %s", figi)
+            return
+        self._submit_order(figi, lots, direction=2, limit_price=limit_price, use_margin=True)
+
+    def verify_connection(self) -> bool:
+        """Attempt to perform a lightweight API call to ensure credentials work."""
+        if self._client is None:
+            logger.info("Tinkoff client not initialised; operating in dry-run mode.")
+            return False
+        try:
+            with self._client as client:
+                if hasattr(client, 'users'):
+                    accounts = client.users.get_accounts()
+                    logger.info("Broker connection OK. Available accounts: %s", [a.id for a in getattr(accounts, 'accounts', [])])
+            return True
+        except Exception as exc:
+            logger.error(f"Failed to verify broker connection: {exc}")
+            return False
 
 
 __all__ = ['Trader']

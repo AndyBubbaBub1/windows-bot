@@ -26,12 +26,16 @@ class RiskManager:
     stop_loss_pct: float = 0.05  # 5% stop loss
     take_profit_pct: float = 0.1  # 10% take profit
     max_positions: int = 5  # maximum concurrent positions
-    allow_short: bool = False  # whether short positions are permitted
+    allow_short: bool = True  # whether short positions are permitted
     # Maximum total exposure relative to portfolio equity.  This caps the
     # combined market value of all open positions.  A value of 1.0
     # allows the entire portfolio to be deployed; lower values enforce
     # leverage constraints.
     max_portfolio_exposure_pct: float = 1.0
+    # Maximum leverage multiplier permitted for the portfolio.  ``1.0``
+    # corresponds to cash-only trading, ``2.0`` allows using capital
+    # equivalent to twice the portfolio equity (i.e. 1:2 leverage).
+    max_leverage: float = 1.0
     # Flag indicating that trading should be halted for the remainder of the day.
     # Set to True when the daily loss threshold is exceeded.  When this flag
     # is active, no new positions will be opened and the manager will
@@ -118,19 +122,20 @@ class RiskManager:
         # Enforce portfolio‑level exposure limit.  Sum the market value of existing
         # positions and ensure the new position does not push the total above
         # ``max_portfolio_exposure_pct`` of current equity.
-        if self.max_portfolio_exposure_pct < 1.0:
-            total_value = 0.0
-            for sym, pos in self.positions.items():
-                try:
-                    total_value += abs(pos['quantity']) * price
-                except Exception:
-                    continue
-            allowed_portfolio_value = max(
-                0.0,
-                (self.portfolio_equity * self.max_portfolio_exposure_pct) - total_value,
-            )
-            max_by_portfolio = allowed_portfolio_value / max(price, 1e-9)
-            size = min(size, max_by_portfolio)
+        # Enforce portfolio-level leverage and exposure constraints.  The
+        # maximum deployable notional is determined by ``max_leverage`` and
+        # ``max_portfolio_exposure_pct``.  ``max_portfolio_exposure_pct`` is kept
+        # for backward compatibility with earlier configuration files where it
+        # represented the same concept.
+        gross_exposure = self.current_gross_exposure()
+        exposure_limit = self.portfolio_equity * max(1.0, self.max_leverage)
+        exposure_limit = min(
+            exposure_limit,
+            self.portfolio_equity * max(1.0, self.max_portfolio_exposure_pct),
+        )
+        remaining_capacity = max(0.0, exposure_limit - gross_exposure)
+        max_by_portfolio = remaining_capacity / max(price, 1e-9)
+        size = min(size, max_by_portfolio)
         return int(max(0, size))
 
     def register_entry(self, symbol: str, price: float, quantity: float) -> None:
@@ -180,6 +185,16 @@ class RiskManager:
         }
         direction = "short" if is_short else "long"
         logger.info(f"Entered {direction} position {symbol} at {price} x{abs(quantity)}")
+
+    def current_gross_exposure(self) -> float:
+        """Return the absolute notional value of all open positions."""
+        exposure = 0.0
+        for pos in self.positions.values():
+            try:
+                exposure += abs(pos.get('quantity', 0.0)) * float(pos.get('entry_price', 0.0))
+            except Exception:
+                continue
+        return exposure
 
     def check_exit(self, symbol: str, current_price: float) -> bool:
         """Check whether a position should be exited based on stop/take levels.

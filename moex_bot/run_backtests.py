@@ -42,13 +42,18 @@ def main() -> None:
     # Resolve glob relative to project root
     project_root = Path(__file__).resolve().parent
     data_glob = str(project_root / data_glob_cfg)
+    trading_cfg = cfg.get('trading', {}) or {}
+    try:
+        leverage = float(trading_cfg.get('leverage', 1.0))
+    except Exception:
+        leverage = 1.0
     strategies_cfg = cfg.get('strategies', [])
     strategies = load_strategies_from_config(cfg)
     if not strategies:
         logger.warning("No valid strategies found in configuration; nothing to backtest.")
         return
     # Run backtests using optional concurrency defined by MOEX_BACKTEST_WORKERS
-    results = run_backtests(data_glob, strategies, start_capital)
+    results = run_backtests(data_glob, strategies, start_capital, leverage=leverage)
     if results.empty:
         logger.warning("No data matched the glob pattern; nothing to backtest.")
         return
@@ -56,7 +61,7 @@ def main() -> None:
     out_dir_cfg = (cfg.get('results_dir') or 'results')
     out_dir = str(project_root / out_dir_cfg)
     # Generate standard backtest reports (CSV/HTML/JSON/Parquet)
-    generate_reports(results, data_glob, strategies, out_dir, start_capital)
+    generate_reports(results, data_glob, strategies, out_dir, start_capital, leverage=leverage)
     logger.info(f"Reports generated in {out_dir}")
 
     # ------------------------------------------------------------------

@@ -59,7 +59,7 @@ from ..core.portfolio import (
     aggregate_returns,
 )
 
-def _compute_equity(df: pd.DataFrame, strategy_fn, start_capital: float) -> pd.Series:
+def _compute_equity(df: pd.DataFrame, strategy_fn, start_capital: float, leverage: float = 1.0) -> pd.Series:
     """Compute equity curve for a single strategy.
 
     Args:
@@ -74,6 +74,8 @@ def _compute_equity(df: pd.DataFrame, strategy_fn, start_capital: float) -> pd.S
     returns = close.pct_change().fillna(0.0)
     sig = strategy_fn(df).fillna(0.0)
     pos = sig.replace(0.0, np.nan).ffill().fillna(0.0).clip(-1.0, 1.0)
+    if leverage and leverage > 0:
+        pos = pos * float(leverage)
     strat_ret = pos.shift(1).fillna(0.0) * returns
     equity = (1.0 + strat_ret).cumprod() * start_capital
     return equity
@@ -92,12 +94,44 @@ def _plot_equity_curve(equity: pd.Series, title: str, filepath: Path) -> None:
     plt.close()
 
 
+def _rank_component(series: pd.Series, ascending: bool) -> pd.Series:
+    values = pd.to_numeric(series, errors='coerce')
+    if values.isna().all():
+        return pd.Series(0.5, index=series.index)
+    fill_value = float(values.median()) if values.notna().any() else 0.0
+    values = values.fillna(fill_value)
+    if values.nunique() <= 1:
+        return pd.Series(0.5, index=series.index)
+    return values.rank(pct=True, ascending=ascending)
+
+
+def _compute_auto_scores(results: pd.DataFrame) -> pd.Series:
+    if results.empty:
+        return pd.Series(dtype=float)
+    components: List[Tuple[pd.Series, float]] = []
+    if 'pnl_pct' in results.columns:
+        components.append((_rank_component(results['pnl_pct'], ascending=False), 0.4))
+    if 'sharpe' in results.columns:
+        components.append((_rank_component(results['sharpe'], ascending=False), 0.3))
+    if 'sortino' in results.columns:
+        components.append((_rank_component(results['sortino'], ascending=False), 0.15))
+    if 'max_drawdown' in results.columns:
+        drawdown_component = 1.0 - _rank_component(results['max_drawdown'].abs(), ascending=True)
+        components.append((drawdown_component, 0.15))
+    if not components:
+        return pd.Series(0.0, index=results.index)
+    total_weight = sum(weight for _, weight in components)
+    score = sum(series * weight for series, weight in components) / total_weight
+    return score.fillna(0.0)
+
+
 def generate_reports(results: pd.DataFrame,
                      data_glob: str,
                      strategies: Dict[str, callable],
                      out_dir: str,
                      start_capital: float,
-                     top_n: int = 3) -> None:
+                     top_n: int = 3,
+                     leverage: float = 1.0) -> None:
     """Generate CSV/HTML reports and equity curve charts.
 
     Args:
@@ -107,6 +141,7 @@ def generate_reports(results: pd.DataFrame,
         out_dir: Directory where outputs will be saved.
         start_capital: Initial capital used for scaling equity curves.
         top_n: Number of top strategies per instrument to include.
+        leverage: Leverage multiplier applied when reconstructing equity curves.
     """
     out = Path(out_dir)
     out.mkdir(exist_ok=True)
@@ -124,12 +159,22 @@ def generate_reports(results: pd.DataFrame,
         # Non‑critical if serialisation fails
         pass
 
+    # Compute blended auto-score used to rank strategies
+    results = results.copy()
+    results['auto_score'] = _compute_auto_scores(results)
+
     # Group by file and select top_n strategies for each instrument
     rows: List[dict] = []
     equity_curves: List[pd.Series] = []
     returns_by_strategy: Dict[str, List[np.ndarray]] = {}
     for file, grp in results.groupby('file'):
-        top = grp.nlargest(top_n, ['pnl_pct', 'sharpe']) if 'pnl_pct' in grp.columns else grp.head(top_n)
+        if 'auto_score' in grp.columns and 'pnl_pct' in grp.columns:
+            sort_cols = ['auto_score', 'pnl_pct']
+            if 'sharpe' in grp.columns:
+                sort_cols.append('sharpe')
+            top = grp.sort_values(sort_cols, ascending=[False] * len(sort_cols)).head(top_n)
+        else:
+            top = grp.head(top_n)
         for _, row in top.iterrows():
             strat_name = row['strategy']
             rows.append({'file': file, **row.to_dict()})
@@ -153,6 +198,8 @@ def generate_reports(results: pd.DataFrame,
                 r = close.pct_change().fillna(0.0)
                 sig = strategies[strat_name](df).fillna(0.0)
                 pos = sig.replace(0.0, np.nan).ffill().fillna(0.0).clip(-1.0, 1.0)
+                if leverage and leverage > 0:
+                    pos = pos * float(leverage)
                 strat_ret = pos.shift(1).fillna(0.0) * r
                 # accumulate returns by strategy
                 returns_by_strategy.setdefault(strat_name, []).append(strat_ret.to_numpy())

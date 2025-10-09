@@ -165,6 +165,10 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
         trade_mode=trade_mode,
         telegram_token=telegram_cfg.get('token'),
         telegram_chat_id=telegram_cfg.get('chat_id'),
+        sandbox_token=tinkoff_cfg.get('sandbox_token'),
+        sandbox_account_id=tinkoff_cfg.get('account_id_sandbox'),
+        max_leverage=float(trading_cfg.get('leverage', 1.0)) if 'leverage' in trading_cfg else 1.0,
+        allow_short=_to_bool(trading_cfg.get('allow_short'), default=True),
     )
     # Step 5: instantiate risk manager with initial capital
     # Prefer 'capital' key from configuration, fall back to 'start_capital'
@@ -174,7 +178,17 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
     except Exception:
         initial_capital_float = 1_000_000.0
     # Extract risk parameters from configuration; unknown keys will be ignored
-    risk_cfg = cfg.get('risk') or {}
+    trading_cfg = cfg.get('trading', {}) or {}
+    risk_cfg = dict(cfg.get('risk') or {})
+    if 'allow_short' not in risk_cfg and 'allow_short' in trading_cfg:
+        risk_cfg['allow_short'] = _to_bool(trading_cfg.get('allow_short'), default=True)
+    if 'max_leverage' not in risk_cfg and 'leverage' in trading_cfg:
+        try:
+            lev = float(trading_cfg.get('leverage', 1.0))
+            risk_cfg.setdefault('max_leverage', lev)
+            risk_cfg.setdefault('max_portfolio_exposure_pct', lev)
+        except Exception:
+            pass
     try:
         risk_manager = RiskManager(initial_capital=initial_capital_float, **risk_cfg)
     except TypeError:

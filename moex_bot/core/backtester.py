@@ -34,7 +34,11 @@ from .metrics import evaluate_strategy
 from .config import load_config
 
 
-def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.DataFrame], pd.Series]) -> Tuple[np.ndarray, np.ndarray]:
+def _prepare_returns_and_signals(
+    df: pd.DataFrame,
+    strategy_fn: Callable[[pd.DataFrame], pd.Series],
+    leverage: float = 1.0,
+) -> Tuple[np.ndarray, np.ndarray]:
     """Apply a strategy function to a DataFrame to obtain returns and signals.
 
     The strategy function should accept a DataFrame and return a pandas
@@ -49,7 +53,9 @@ def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.Dat
     Returns:
         A tuple ``(returns, signals)`` where ``returns`` is a 1D numpy
         array of periodic returns and ``signals`` is a 1D numpy array of
-        positions at the same timestamps.
+        positions at the same timestamps.  When ``leverage`` is greater
+        than one the position vector is scaled accordingly to simulate
+        margin trading.
     """
     close = df['close'].astype(float)
     returns = close.pct_change().fillna(0.0).to_numpy()
@@ -57,6 +63,8 @@ def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.Dat
     # Position is carried forward; shift so that today's signal acts on next period
     pos = sig.replace(0.0, np.nan).ffill().fillna(0.0).clip(-1.0, 1.0)
     positions = pos.shift(1).fillna(0.0).to_numpy()
+    if leverage and leverage > 0:
+        positions = np.clip(positions * float(leverage), -abs(float(leverage)), abs(float(leverage)))
     # Strategy returns are position * returns
     strategy_returns = positions * returns
     return strategy_returns, positions
@@ -65,6 +73,7 @@ def _prepare_returns_and_signals(df: pd.DataFrame, strategy_fn: Callable[[pd.Dat
 def run_backtest_for_df(df: pd.DataFrame,
                         strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
                         start_capital: float,
+                        leverage: float = 1.0,
                         show: bool = False) -> pd.DataFrame:
     """Run multiple strategies on a single DataFrame and compute metrics.
 
@@ -73,6 +82,7 @@ def run_backtest_for_df(df: pd.DataFrame,
         strategies: Mapping of strategy names to callables returning a
             signal series.
         start_capital: Initial capital for PnL calculations.
+        leverage: Optional leverage multiplier applied to the positions.
         show: If True, prints the resulting DataFrame.
 
     Returns:
@@ -81,7 +91,7 @@ def run_backtest_for_df(df: pd.DataFrame,
     rows = []
     for name, fn in strategies.items():
         try:
-            r, pos = _prepare_returns_and_signals(df, fn)
+            r, pos = _prepare_returns_and_signals(df, fn, leverage=leverage)
             metrics = evaluate_strategy(r, pos, start_capital)
             rows.append({'strategy': name, **metrics})
         except Exception as e:
@@ -97,7 +107,8 @@ def run_backtest_for_df(df: pd.DataFrame,
 
 def _run_single_backtest(file_path: str,
                          strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
-                         start_capital: float) -> pd.DataFrame:
+                         start_capital: float,
+                         leverage: float) -> pd.DataFrame:
     """Helper to run a backtest on a single file.
 
     This helper function is defined at the top level so that it can
@@ -115,14 +126,15 @@ def _run_single_backtest(file_path: str,
         single file.
     """
     df = pd.read_csv(file_path)
-    res = run_backtest_for_df(df, strategies, start_capital, show=False)
+    res = run_backtest_for_df(df, strategies, start_capital, leverage=leverage, show=False)
     res.insert(0, 'file', file_path)
     return res
 
 
 def run_backtests(glob_pattern: str,
                   strategies: Dict[str, Callable[[pd.DataFrame], pd.Series]],
-                  start_capital: float) -> pd.DataFrame:
+                  start_capital: float,
+                  leverage: float = 1.0) -> pd.DataFrame:
     """Run backtests on all files matching a glob pattern.
 
     This function can optionally leverage multiple worker threads to
@@ -141,6 +153,7 @@ def run_backtests(glob_pattern: str,
             ``data/*_hour_90d.csv``).
         strategies: Mapping of strategy names to callables.
         start_capital: Initial capital.
+        leverage: Optional leverage multiplier applied to all strategies.
 
     Returns:
         Concatenated results for all files with an additional ``file``
@@ -161,7 +174,7 @@ def run_backtests(glob_pattern: str,
         from concurrent.futures import ThreadPoolExecutor
         max_workers = min(workers, len(files))
         with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(_run_single_backtest, f, strategies, start_capital) for f in files]
+            futures = [executor.submit(_run_single_backtest, f, strategies, start_capital, leverage) for f in files]
             for fut in futures:
                 try:
                     res = fut.result()
@@ -174,7 +187,7 @@ def run_backtests(glob_pattern: str,
         # Sequential execution
         for f in files:
             try:
-                res = _run_single_backtest(f, strategies, start_capital)
+                res = _run_single_backtest(f, strategies, start_capital, leverage)
                 results.append(res)
             except Exception as e:
                 err_df = pd.DataFrame([{'file': f, 'error': str(e)}])
