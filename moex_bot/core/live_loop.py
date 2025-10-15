@@ -124,6 +124,9 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
     # Step 1: load config if not provided
     if cfg is None:
         cfg = load_config()
+    # Extract trading configuration early so it is available to downstream
+    # components regardless of control flow below.
+    trading_cfg = cfg.get('trading', {}) or {}
     # Step 2: choose data provider.  If a valid Tinkoff token is configured
     # and the streaming SDK is available, use TinkoffStreamProvider to
     # obtain live quotes; otherwise fall back to the base DataProvider.
@@ -156,9 +159,6 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
     # Pull Telegram configuration once so it can be reused for notifications
     token: Optional[str] = telegram_cfg.get('token')  # type: ignore[var-annotated]
     chat_id: Optional[str] = telegram_cfg.get('chat_id')  # type: ignore[var-annotated]
-    # Extract trading configuration before constructing broker dependencies
-    trading_cfg = cfg.get('trading', {}) or {}
-
     trader = Trader(
         token=tinkoff_token,
         account_id=tinkoff_cfg.get('account_id'),
