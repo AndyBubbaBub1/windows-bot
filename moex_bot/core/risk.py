@@ -10,9 +10,11 @@ to exit trades when risk thresholds are breached.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict
+from typing import Dict, List, Optional
 import datetime
 import logging
+
+from .metrics import compute_var_cvar
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +38,11 @@ class RiskManager:
     borrow_rate_pct: float = 0.0
     short_borrow_rate_pct: float | None = None
     financing_periods_per_year: int = 252
+    instrument_limits: Dict[str, float] = field(default_factory=dict)
+    sector_map: Dict[str, str] = field(default_factory=dict)
+    sector_limits: Dict[str, float] = field(default_factory=dict)
+    max_var_pct: Optional[float] = None
+    var_level: float = 0.05
     # Flag indicating that trading should be halted for the remainder of the day.
     # Set to True when the daily loss threshold is exceeded.  When this flag
     # is active, no new positions will be opened and the manager will
@@ -48,6 +55,10 @@ class RiskManager:
     peak_equity: float = field(init=False)
     day_start_equity: float = field(init=False)
     positions: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    equity_history: List[float] = field(default_factory=list, init=False)
+    cash_flows: List[float] = field(default_factory=list, init=False)
+    latest_var: float = field(default=0.0, init=False)
+    latest_cvar: float = field(default=0.0, init=False)
 
     def __post_init__(self) -> None:
         self.portfolio_equity = self.initial_capital
@@ -56,6 +67,7 @@ class RiskManager:
         self.day_start_equity = self.initial_capital
         # Set the last equity date to today when the manager is created
         self.last_equity_date = datetime.date.today()
+        self.equity_history.append(float(self.initial_capital))
 
     def update_equity(self, new_equity: float) -> None:
         """Update internal equity tracking and check drawdown limit."""
@@ -93,8 +105,33 @@ class RiskManager:
             self._send_alert(
                 f"⚠️ Дневной лимит потерь превышен: {daily_loss:.2%}. Торговля остановлена до конца дня."
             )
+        self._update_risk_metrics(new_equity)
 
-    def allowed_position_size(self, price: float) -> int:
+    def _update_risk_metrics(self, new_equity: float) -> None:
+        self.equity_history.append(float(new_equity))
+        if len(self.equity_history) > 512:
+            self.equity_history = self.equity_history[-512:]
+        if len(self.equity_history) < 2:
+            return
+        returns = []
+        for prev, curr in zip(self.equity_history[:-1], self.equity_history[1:]):
+            if prev <= 0:
+                continue
+            returns.append((curr - prev) / prev)
+        if not returns:
+            return
+        var, cvar = compute_var_cvar(returns, alpha=self.var_level)
+        self.latest_var = var
+        self.latest_cvar = cvar
+        if self.max_var_pct is not None and var > self.max_var_pct:
+            logger.error(
+                "Portfolio VaR %.2f%% exceeds limit of %.2f%%", var * 100, self.max_var_pct * 100
+            )
+            self._send_alert(
+                f"⚠️ Порог VaR превышен: {var * 100:.2f}% > {self.max_var_pct * 100:.2f}%. Проверьте позиции."
+            )
+
+    def allowed_position_size(self, price: float, symbol: str | None = None) -> int:
         """Compute the maximum number of shares/lots allowed per trade.
 
         Uses the per‑trade risk percentage to size the position such that a stop
@@ -128,6 +165,10 @@ class RiskManager:
         )
         max_by_portfolio = allowed_portfolio_value / max(price, 1e-9)
         size = min(size, max_by_portfolio)
+        if symbol:
+            limit = self.instrument_limits.get(symbol.upper())
+            if limit is not None:
+                size = min(size, float(limit))
         return int(max(0, size))
 
     def _current_gross_exposure(self) -> float:
@@ -147,6 +188,18 @@ class RiskManager:
             try:
                 price = float(pos.get('last_price', pos.get('entry_price', 0.0)))
                 total_value += float(pos.get('quantity', 0.0)) * price
+            except Exception:
+                continue
+        return total_value
+
+    def _sector_market_value(self, sector: str) -> float:
+        total_value = 0.0
+        for sym, pos in self.positions.items():
+            if self.sector_map.get(sym.upper()) != sector:
+                continue
+            try:
+                price = float(pos.get('last_price', pos.get('entry_price', 0.0)))
+                total_value += abs(float(pos.get('quantity', 0.0))) * price
             except Exception:
                 continue
         return total_value
@@ -193,6 +246,30 @@ class RiskManager:
         if is_short and not self.allow_short:
             logger.warning(f"Short positions are not allowed. Skipping entry for {symbol}.")
             return
+        limit = self.instrument_limits.get(symbol.upper())
+        if limit is not None and abs(quantity) > limit:
+            logger.warning(
+                "Quantity %.2f for %s exceeds instrument limit %.2f. Capping to limit.",
+                quantity,
+                symbol,
+                limit,
+            )
+            quantity = float(limit) if quantity > 0 else -float(limit)
+        sector = self.sector_map.get(symbol.upper())
+        if sector:
+            sector_limit = self.sector_limits.get(sector)
+            if sector_limit is not None and sector_limit > 0:
+                exposure = self._sector_market_value(sector)
+                proposed = exposure + abs(quantity) * price
+                allowed_value = self.portfolio_equity * sector_limit
+                if proposed > allowed_value:
+                    logger.warning(
+                        "Sector %s exposure %.2f exceeds limit %.2f. Entry rejected.",
+                        sector,
+                        proposed,
+                        allowed_value,
+                    )
+                    return
         # Determine stop and take‑profit levels based on direction
         if not is_short:
             # Long position
@@ -275,6 +352,16 @@ class RiskManager:
         for sym in list(self.positions.keys()):
             logger.info(f"Force closing position {sym}")
             del self.positions[sym]
+
+    def apply_cash_flow(self, amount: float) -> None:
+        """Adjust equity for deposits or withdrawals and refresh metrics."""
+
+        self.cash_flows.append(float(amount))
+        self.portfolio_equity += amount
+        self.day_start_equity += amount
+        if self.portfolio_equity > self.peak_equity:
+            self.peak_equity = self.portfolio_equity
+        self._update_risk_metrics(self.portfolio_equity)
 
     # ---------------------------------------------------------------------
     # Notification helpers

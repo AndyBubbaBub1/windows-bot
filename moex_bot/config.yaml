@@ -1,9 +1,14 @@
 capital: 1000000
 commission: 0.0004
+slippage_bps: 10
 data_path: data
 results_path: results
 results_dir: results
 db_path: results/history.db
+
+liquidity:
+  max_volume_pct: 0.25
+  volume_column: volume
 
 # Margin and leverage settings used for backtests and live risk management.
 margin:

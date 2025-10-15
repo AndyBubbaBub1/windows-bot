@@ -105,7 +105,7 @@ class PortfolioManager:
                 price = data_provider.latest_price(sym)
                 if price is None or price <= 0:
                     continue
-                lots = risk_manager.allowed_position_size(price) if risk_manager else 0
+                lots = risk_manager.allowed_position_size(price, sym) if risk_manager else 0
                 if lots <= 0:
                     continue
                 if diff > 0:

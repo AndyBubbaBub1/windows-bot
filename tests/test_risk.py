@@ -25,9 +25,9 @@ def test_allowed_position_size_respects_portfolio_exposure() -> None:
         stop_loss_pct=0.1,
     )
     price = 100.0
-    size1 = rm.allowed_position_size(price)
+    size1 = rm.allowed_position_size(price, 'TEST')
     rm.register_entry('TEST', price, size1)
-    size2 = rm.allowed_position_size(price)
+    size2 = rm.allowed_position_size(price, 'TEST')
     assert size2 <= size1
 
 
@@ -41,15 +41,15 @@ def test_leverage_allows_additional_capacity() -> None:
         max_leverage=2.0,
     )
     price = 100.0
-    size1 = rm.allowed_position_size(price)
+    size1 = rm.allowed_position_size(price, 'AAA')
     assert size1 > 0
     rm.register_entry('AAA', price, size1)
     # With leverage>1 we should still be able to open another position
-    size2 = rm.allowed_position_size(price)
+    size2 = rm.allowed_position_size(price, 'BBB')
     assert size2 > 0
     rm.register_entry('BBB', price, size2)
     # Now exposure should be capped
-    size3 = rm.allowed_position_size(price)
+    size3 = rm.allowed_position_size(price, 'CCC')
     assert size3 == 0
 
 
@@ -63,11 +63,11 @@ def test_updates_market_prices_for_exposure() -> None:
         max_portfolio_exposure_pct=1.0,
     )
     rm.register_entry('XYZ', price=100.0, quantity=10)
-    baseline = rm.allowed_position_size(100.0)
+    baseline = rm.allowed_position_size(100.0, 'XYZ')
     assert baseline > 0
     # Simulate price rally which should consume the exposure budget
     rm.update_position_price('XYZ', 500.0)
-    tightened = rm.allowed_position_size(100.0)
+    tightened = rm.allowed_position_size(100.0, 'XYZ')
     assert tightened == 0
 
 
@@ -81,4 +81,22 @@ def test_trailing_stop_stores_last_price() -> None:
     # Price falls triggering exit; last price should update again before removal
     assert rm.check_exit('AAA', 90.0) is True
     assert rm.positions['AAA']['last_price'] == 90.0
+
+
+def test_instrument_limit_caps_entries() -> None:
+    rm = RiskManager(initial_capital=5000.0, instrument_limits={'AAA': 3})
+    size = rm.allowed_position_size(100.0, 'AAA')
+    assert size <= 3
+    rm.register_entry('AAA', price=100.0, quantity=10)
+    assert rm.positions['AAA']['quantity'] == 3
+
+
+def test_var_metrics_and_cash_flow() -> None:
+    rm = RiskManager(initial_capital=1000.0, max_var_pct=0.5)
+    rm.update_equity(1100.0)
+    rm.update_equity(900.0)
+    assert rm.latest_var >= 0
+    rm.apply_cash_flow(200.0)
+    assert rm.cash_flows[-1] == 200.0
+    assert rm.portfolio_equity >= 1100.0
 

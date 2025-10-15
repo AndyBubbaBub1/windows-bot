@@ -158,7 +158,7 @@ class TelegramBot:
         lots_to_trade = requested_lots
         if self.risk_manager and price is not None:
             try:
-                max_lots = int(self.risk_manager.allowed_position_size(price))
+                max_lots = int(self.risk_manager.allowed_position_size(price, symbol))
                 if max_lots <= 0:
                     await context.bot.send_message(chat_id=update.effective_chat.id, text=f"Cannot open position in {symbol}: risk limit reached.")  # type: ignore[attr-defined]
                     return

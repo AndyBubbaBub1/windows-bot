@@ -41,6 +41,10 @@ def _prepare_returns_and_signals(
     borrow_rate: float = 0.0,
     short_rate: float | None = None,
     periods_per_year: int = 252,
+    commission_pct: float = 0.0,
+    slippage_bps: float = 0.0,
+    max_volume_pct: float | None = None,
+    volume_column: str = "volume",
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray]:
     """Apply a strategy function to a DataFrame to obtain returns and signals.
 
@@ -60,13 +64,30 @@ def _prepare_returns_and_signals(
         one period and ``effective_positions`` reflects the applied leverage.
     """
     close = df['close'].astype(float)
+    prices = close.to_numpy()
     returns = close.pct_change().fillna(0.0).to_numpy()
     sig = strategy_fn(df).astype(float).fillna(0.0)
     # Position is carried forward; shift so that today's signal acts on next period
     pos = sig.replace(0.0, np.nan).ffill().fillna(0.0).clip(-1.0, 1.0)
     positions = pos.shift(1).fillna(0.0).to_numpy()
     effective_positions = positions * leverage
+    if max_volume_pct is not None and volume_column in df.columns:
+        try:
+            volume = pd.to_numeric(df[volume_column], errors='coerce').fillna(0.0).to_numpy()
+        except Exception:
+            volume = np.zeros_like(positions)
+        cap = volume * float(max_volume_pct)
+        effective_positions = np.clip(effective_positions, -cap, cap)
     strategy_returns = effective_positions * returns
+    if commission_pct or slippage_bps:
+        position_changes = np.abs(np.diff(effective_positions, prepend=0.0))
+        trade_notional = position_changes * prices
+        costs = np.zeros_like(strategy_returns)
+        if commission_pct:
+            costs += commission_pct * trade_notional
+        if slippage_bps:
+            costs += (slippage_bps / 10_000.0) * trade_notional
+        strategy_returns = strategy_returns - costs
     if borrow_rate or short_rate:
         periods = max(int(periods_per_year), 1)
         borrow_rate_per_period = borrow_rate / periods
@@ -92,6 +113,10 @@ def run_backtest_for_df(
     borrow_rate: float = 0.0,
     short_rate: float | None = None,
     periods_per_year: int = 252,
+    commission_pct: float = 0.0,
+    slippage_bps: float = 0.0,
+    max_volume_pct: float | None = None,
+    volume_column: str = "volume",
 ) -> pd.DataFrame:
     """Run multiple strategies on a single DataFrame and compute metrics.
 
@@ -115,6 +140,10 @@ def run_backtest_for_df(
                 borrow_rate=borrow_rate,
                 short_rate=short_rate,
                 periods_per_year=periods_per_year,
+                commission_pct=commission_pct,
+                slippage_bps=slippage_bps,
+                max_volume_pct=max_volume_pct,
+                volume_column=volume_column,
             )
             metrics = evaluate_strategy(r, np.sign(pos), start_capital, periods_per_year=periods_per_year)
             metrics['avg_leverage'] = float(np.mean(np.abs(eff_pos))) if eff_pos.size else 0.0
@@ -139,6 +168,10 @@ def _run_single_backtest(
     borrow_rate: float,
     short_rate: float | None,
     periods_per_year: int,
+    commission_pct: float,
+    slippage_bps: float,
+    max_volume_pct: float | None,
+    volume_column: str,
 ) -> pd.DataFrame:
     """Helper to run a backtest on a single file.
 
@@ -166,6 +199,10 @@ def _run_single_backtest(
         borrow_rate=borrow_rate,
         short_rate=short_rate,
         periods_per_year=periods_per_year,
+        commission_pct=commission_pct,
+        slippage_bps=slippage_bps,
+        max_volume_pct=max_volume_pct,
+        volume_column=volume_column,
     )
     res.insert(0, 'file', file_path)
     return res
@@ -179,6 +216,10 @@ def run_backtests(
     borrow_rate: float = 0.0,
     short_rate: float | None = None,
     periods_per_year: int = 252,
+    commission_pct: float = 0.0,
+    slippage_bps: float = 0.0,
+    max_volume_pct: float | None = None,
+    volume_column: str = "volume",
 ) -> pd.DataFrame:
     """Run backtests on all files matching a glob pattern.
 
@@ -228,6 +269,10 @@ def run_backtests(
                     borrow_rate,
                     short_rate,
                     periods_per_year,
+                    commission_pct,
+                    slippage_bps,
+                    max_volume_pct,
+                    volume_column,
                 )
                 for f in files
             ]
@@ -251,6 +296,10 @@ def run_backtests(
                     borrow_rate,
                     short_rate,
                     periods_per_year,
+                    commission_pct,
+                    slippage_bps,
+                    max_volume_pct,
+                    volume_column,
                 )
                 results.append(res)
             except Exception as e:

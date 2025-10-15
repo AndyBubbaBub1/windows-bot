@@ -59,6 +59,16 @@ def main() -> None:
     periods_per_year = int(margin_cfg.get('financing_periods_per_year', margin_cfg.get('periods_per_year', 252)) or 252)
     borrow_rate = borrow_rate_pct / 100.0
     short_rate = short_rate_pct / 100.0 if short_rate_pct is not None else None
+    commission_pct = float(cfg.get('commission', 0.0) or 0.0)
+    slippage_bps = float(cfg.get('slippage_bps', 0.0) or 0.0)
+    liquidity_cfg = cfg.get('liquidity') or {}
+    max_volume_pct = liquidity_cfg.get('max_volume_pct')
+    if max_volume_pct is not None:
+        try:
+            max_volume_pct = float(max_volume_pct)
+        except Exception:
+            max_volume_pct = None
+    volume_column = liquidity_cfg.get('volume_column', 'volume')
     # Run backtests using optional concurrency defined by MOEX_BACKTEST_WORKERS
     results = run_backtests(
         data_glob,
@@ -68,6 +78,10 @@ def main() -> None:
         borrow_rate=borrow_rate,
         short_rate=short_rate,
         periods_per_year=periods_per_year,
+        commission_pct=commission_pct,
+        slippage_bps=slippage_bps,
+        max_volume_pct=max_volume_pct,
+        volume_column=volume_column,
     )
     if results.empty:
         logger.warning("No data matched the glob pattern; nothing to backtest.")

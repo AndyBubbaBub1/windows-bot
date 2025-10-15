@@ -282,7 +282,7 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
                 continue
             last_signal = signals.iloc[-1]
             # Determine how many lots we can trade based on risk management
-            allowed_lots = risk_manager.allowed_position_size(price)
+            allowed_lots = risk_manager.allowed_position_size(price, symbol)
             if last_signal > 0:
                 # Positive signal: aim to be long
                 if symbol not in risk_manager.positions:
