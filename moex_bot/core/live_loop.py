@@ -252,6 +252,8 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
                 continue
             # Risk management: check if we should exit an existing position
             if symbol in risk_manager.positions:
+                # Update latest market price for exposure tracking
+                risk_manager.update_position_price(symbol, price)
                 # Update trailing stop and check for exit
                 if risk_manager.check_exit(symbol, price):
                     lots_to_sell = int(risk_manager.positions[symbol].get('quantity', 0))

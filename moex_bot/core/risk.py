@@ -10,7 +10,7 @@ to exit trades when risk thresholds are breached.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict
 import datetime
 import logging
 
@@ -134,11 +134,37 @@ class RiskManager:
         total_value = 0.0
         for pos in self.positions.values():
             try:
-                price = pos.get('last_price', pos.get('entry_price', 0.0))
-                total_value += abs(pos.get('quantity', 0.0)) * float(price)
+                price = float(pos.get('last_price', pos.get('entry_price', 0.0)))
+                total_value += abs(float(pos.get('quantity', 0.0))) * price
             except Exception:
                 continue
         return total_value
+
+    def portfolio_market_value(self) -> float:
+        """Return the mark-to-market value of all open positions."""
+        total_value = 0.0
+        for pos in self.positions.values():
+            try:
+                price = float(pos.get('last_price', pos.get('entry_price', 0.0)))
+                total_value += float(pos.get('quantity', 0.0)) * price
+            except Exception:
+                continue
+        return total_value
+
+    def update_position_price(self, symbol: str, price: float) -> None:
+        """Record the latest observed market price for ``symbol``.
+
+        The trading loop should call this helper whenever a new price tick is
+        processed so that position exposure calculations (e.g. leverage
+        limits) use up-to-date market values.
+        """
+        pos = self.positions.get(symbol)
+        if not pos:
+            return
+        try:
+            pos['last_price'] = float(price)
+        except (TypeError, ValueError):
+            logger.debug(f"Invalid price {price!r} supplied for {symbol}; ignoring update.")
 
     def register_entry(self, symbol: str, price: float, quantity: float) -> None:
         """Record a new position entry and initialise risk parameters.
@@ -210,6 +236,7 @@ class RiskManager:
             return False
         quantity = pos['quantity']
         is_short = quantity < 0
+        pos['last_price'] = float(current_price)
         if not is_short:
             # Long position: update trailing stop upward if price increases
             new_trailing = current_price * (1 - self.stop_loss_pct)
