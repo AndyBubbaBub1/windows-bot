@@ -137,21 +137,19 @@ class Trader:
             # Swallow any errors silently; we do not want to interrupt trading
             pass
 
-    def _submit_order(self, figi: str, lots: int, direction: int, limit_price: Optional[float] = None) -> None:
-        """Internal helper to submit an order through the API or log it.
+    def _submit_order(
+        self, figi: str, lots: int, direction: int, limit_price: Optional[float] = None
+    ) -> str:
+        """Internal helper to submit an order through the API or log it."""
 
-        Args:
-            figi: FIGI of the instrument.
-            lots: Number of lots to trade.
-            direction: 1 for buy, 2 for sell.
-            limit_price: Optional price for limit orders; ``None`` for market.
-        """
         order_id = self._generate_order_id('buy' if direction == 1 else 'sell', figi, lots)
         if self._client is None:
-            # Dry‑run mode: just log the order and notify via Telegram if configured
-            logger.info(f"[DRY‑RUN] {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'} (sandbox={self.sandbox}) [order_id={order_id}]")
+            logger.info(
+                f"[DRY‑RUN] {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'} "
+                f"(sandbox={self.sandbox}) [order_id={order_id}]"
+            )
             self._notify_trade(direction, figi, lots, limit_price, order_id)
-            return
+            return order_id
         try:
             with self._client as client:
                 if self.sandbox and hasattr(client, 'sandbox'):
@@ -161,7 +159,7 @@ class Trader:
                         quantity=lots,
                         price=None if limit_price is None else {'units': int(limit_price), 'nano': 0},
                         direction=direction,
-                        order_type=2,  # 2 corresponds to MARKET orders in the SDK
+                        order_type=2,
                         order_id=order_id,
                     )
                 else:
@@ -174,19 +172,48 @@ class Trader:
                         order_type=2,
                         order_id=order_id,
                     )
-            logger.info(f"Submitted order {order_id}: {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ {limit_price or 'MARKET'}")
-            # Notify about the successful submission
+            logger.info(
+                f"Submitted order {order_id}: {'BUY' if direction == 1 else 'SELL'} {lots} of {figi} @ "
+                f"{limit_price or 'MARKET'}"
+            )
             self._notify_trade(direction, figi, lots, limit_price, order_id)
         except Exception as e:
             logger.error(f"Error submitting order {order_id} for {figi}: {e}")
+        return order_id
 
-    def buy(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> None:
+    def buy(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> str:
         """Place a buy order for the specified instrument."""
-        self._submit_order(figi, lots, direction=1, limit_price=limit_price)
 
-    def sell(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> None:
+        return self._submit_order(figi, lots, direction=1, limit_price=limit_price)
+
+    def sell(self, figi: str, lots: int = 1, limit_price: Optional[float] = None) -> str:
         """Place a sell order for the specified instrument."""
-        self._submit_order(figi, lots, direction=2, limit_price=limit_price)
 
+        return self._submit_order(figi, lots, direction=2, limit_price=limit_price)
+
+    def cancel_all_orders(self) -> None:
+        """Attempt to cancel all open orders for the configured account."""
+
+        if self._client is None:
+            logger.info("cancel_all_orders: no active API client, skipping cancellation")
+            return
+        try:
+            with self._client as client:
+                active_orders = []
+                try:
+                    response = client.orders.get_orders(account_id=self.account_id)
+                    active_orders = getattr(response, 'orders', [])
+                except Exception:
+                    active_orders = []
+                for order in active_orders:
+                    try:
+                        client.orders.cancel_order(account_id=self.account_id, order_id=order.order_id)
+                    except Exception as exc:
+                        logger.warning(
+                            "Failed to cancel order %s: %s", getattr(order, 'order_id', 'unknown'), exc
+                        )
+            logger.info("Requested cancellation of %d open orders", len(active_orders))
+        except Exception as exc:
+            logger.error("cancel_all_orders failed: %s", exc)
 
 __all__ = ['Trader']

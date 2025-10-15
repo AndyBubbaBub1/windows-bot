@@ -50,8 +50,29 @@ pip install -e .
 список можно сохранить в кэш или передать в собственную динамическую вселенную.
 
 ## DataProvider
-`DataProvider(stream=..., rest=...)` делает fallback: stream→REST→cache. 
-Отключение сети: `provider.enabled = False`.
+`DataProvider` теперь поддерживает полноценный каскад источников: stream → REST →
+in-memory cache → CSV из `data/`.  Для ускорения можно отключить сеть через
+`provider.disable_network()`, а `latest_price()` автоматически подхватывает
+последнюю цену из кэша или файлов истории.
+
+```python
+from moex_bot.core.data_provider import DataProvider
+
+provider = DataProvider(
+    data_dir="data",
+    stream=stream_adapter,
+    rest=rest_adapter,
+    cache_ttl=5.0,
+)
+price = provider.get_price("SBER")
+history = provider.load_history("SBER", interval="hour", days=90)
+```
+
+## LiveTrader
+`LiveTrader` объединяет брокера и риск-менеджер: умеет добавлять слиппедж к лимитным
+ордерам, повторно отправлять заявки, синхронизировать позиции и equity с
+`RiskManager`, а также вести журнал сделок для последующей аналитики или
+отправки в мониторинг.
 
 ## Шорты
 Контролируйте через `allow_short` в `config.yaml`.
