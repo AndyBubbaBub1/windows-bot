@@ -156,6 +156,8 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
     # Pull Telegram configuration once so it can be reused for notifications
     token: Optional[str] = telegram_cfg.get('token')  # type: ignore[var-annotated]
     chat_id: Optional[str] = telegram_cfg.get('chat_id')  # type: ignore[var-annotated]
+    # Extract trading configuration before constructing broker dependencies
+    trading_cfg = cfg.get('trading', {}) or {}
 
     trader = Trader(
         token=tinkoff_token,
@@ -178,7 +180,6 @@ def run_live_cycle(cfg: Dict[str, Any] | None = None) -> None:
     except Exception:
         initial_capital_float = 1_000_000.0
     # Extract risk parameters from configuration; unknown keys will be ignored
-    trading_cfg = cfg.get('trading', {}) or {}
     risk_cfg = dict(cfg.get('risk') or {})
     if 'allow_short' not in risk_cfg and 'allow_short' in trading_cfg:
         risk_cfg['allow_short'] = _to_bool(trading_cfg.get('allow_short'), default=True)
