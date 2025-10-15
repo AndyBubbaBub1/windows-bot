@@ -140,6 +140,49 @@ class RiskManager:
                 continue
         return total_value
 
+    def update_position_price(self, symbol: str, price: float) -> None:
+        """Store the latest observed market price for an open position.
+
+        The trading loop can call this helper whenever a fresh quote is
+        received.  Persisting the last traded price allows the risk manager
+        to evaluate portfolio exposure using mark‑to‑market values instead of
+        stale entry prices.
+
+        Args:
+            symbol: Instrument identifier of the open position.
+            price: Latest traded price for the instrument.
+        """
+        if price <= 0:
+            return
+        pos = self.positions.get(symbol)
+        if not pos:
+            return
+        pos['last_price'] = float(price)
+
+    def evaluate_portfolio_risk(self) -> Dict[str, float]:
+        """Return a snapshot of portfolio exposure using current prices.
+
+        The result can be used by monitoring components to display how much
+        capacity remains before hitting the configured portfolio limits.
+        Values are expressed in absolute currency terms.
+
+        Returns:
+            Mapping containing the gross market value of positions and the
+            maximum permitted exposure under the configured leverage and
+            exposure caps.
+        """
+        gross_exposure = self._current_gross_exposure()
+        exposure_cap_pct = self.max_leverage if self.max_leverage > 0 else 1.0
+        if self.max_portfolio_exposure_pct not in (0.0, 1.0):
+            exposure_cap_pct = min(exposure_cap_pct, self.max_portfolio_exposure_pct)
+        allowed_exposure = max(self.portfolio_equity * exposure_cap_pct, 0.0)
+        remaining_capacity = max(allowed_exposure - gross_exposure, 0.0)
+        return {
+            'gross_exposure': gross_exposure,
+            'allowed_exposure': allowed_exposure,
+            'remaining_capacity': remaining_capacity,
+        }
+
     def register_entry(self, symbol: str, price: float, quantity: float) -> None:
         """Record a new position entry and initialise risk parameters.
 
@@ -208,6 +251,7 @@ class RiskManager:
         pos = self.positions.get(symbol)
         if not pos:
             return False
+        pos['last_price'] = float(current_price)
         quantity = pos['quantity']
         is_short = quantity < 0
         if not is_short:

@@ -51,3 +51,36 @@ def test_leverage_allows_additional_capacity() -> None:
     # Now exposure should be capped
     size3 = rm.allowed_position_size(price)
     assert size3 == 0
+
+
+def test_update_position_price_marks_to_market_exposure() -> None:
+    """Exposure calculations should react to mark-to-market price updates."""
+    rm = RiskManager(
+        initial_capital=1000.0,
+        max_portfolio_exposure_pct=0.5,
+        max_position_pct=1.0,
+        stop_loss_pct=0.1,
+    )
+    price = 100.0
+    size = rm.allowed_position_size(price)
+    assert size > 0
+    rm.register_entry('AAA', price, size)
+    # Large price move should reduce remaining capacity to zero
+    rm.update_position_price('AAA', 300.0)
+    assert rm.allowed_position_size(price) == 0
+
+
+def test_evaluate_portfolio_risk_reports_market_values() -> None:
+    """Portfolio snapshot should use the latest observed prices."""
+    rm = RiskManager(
+        initial_capital=2000.0,
+        max_portfolio_exposure_pct=0.5,
+        max_position_pct=1.0,
+        stop_loss_pct=0.1,
+    )
+    rm.register_entry('BBB', 100.0, 5)
+    rm.update_position_price('BBB', 120.0)
+    snapshot = rm.evaluate_portfolio_risk()
+    assert abs(snapshot['gross_exposure'] - 600.0) < 1e-9
+    assert abs(snapshot['allowed_exposure'] - 1000.0) < 1e-9
+    assert abs(snapshot['remaining_capacity'] - 400.0) < 1e-9
