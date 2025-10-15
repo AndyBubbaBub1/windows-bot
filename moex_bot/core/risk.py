@@ -32,6 +32,10 @@ class RiskManager:
     # allows the entire portfolio to be deployed; lower values enforce
     # leverage constraints.
     max_portfolio_exposure_pct: float = 1.0
+    max_leverage: float = 1.0
+    borrow_rate_pct: float = 0.0
+    short_borrow_rate_pct: float | None = None
+    financing_periods_per_year: int = 252
     # Flag indicating that trading should be halted for the remainder of the day.
     # Set to True when the daily loss threshold is exceeded.  When this flag
     # is active, no new positions will be opened and the manager will
@@ -112,26 +116,29 @@ class RiskManager:
         risk_amount = self.portfolio_equity * self.per_trade_risk_pct
         stop_amount = price * self.stop_loss_pct
         base_size = risk_amount / max(stop_amount, 1e-9)
-        # Additionally cap by max_position_pct of current equity
         max_size_by_equity = (self.portfolio_equity * self.max_position_pct) / price
         size = min(base_size, max_size_by_equity)
-        # Enforce portfolio‑level exposure limit.  Sum the market value of existing
-        # positions and ensure the new position does not push the total above
-        # ``max_portfolio_exposure_pct`` of current equity.
-        if self.max_portfolio_exposure_pct < 1.0:
-            total_value = 0.0
-            for sym, pos in self.positions.items():
-                try:
-                    total_value += abs(pos['quantity']) * price
-                except Exception:
-                    continue
-            allowed_portfolio_value = max(
-                0.0,
-                (self.portfolio_equity * self.max_portfolio_exposure_pct) - total_value,
-            )
-            max_by_portfolio = allowed_portfolio_value / max(price, 1e-9)
-            size = min(size, max_by_portfolio)
+        exposure_cap_pct = self.max_leverage if self.max_leverage > 0 else 1.0
+        if self.max_portfolio_exposure_pct not in (0.0, 1.0):
+            exposure_cap_pct = min(exposure_cap_pct, self.max_portfolio_exposure_pct)
+        total_value = self._current_gross_exposure()
+        allowed_portfolio_value = max(
+            0.0,
+            (self.portfolio_equity * exposure_cap_pct) - total_value,
+        )
+        max_by_portfolio = allowed_portfolio_value / max(price, 1e-9)
+        size = min(size, max_by_portfolio)
         return int(max(0, size))
+
+    def _current_gross_exposure(self) -> float:
+        total_value = 0.0
+        for pos in self.positions.values():
+            try:
+                price = pos.get('last_price', pos.get('entry_price', 0.0))
+                total_value += abs(pos.get('quantity', 0.0)) * float(price)
+            except Exception:
+                continue
+        return total_value
 
     def register_entry(self, symbol: str, price: float, quantity: float) -> None:
         """Record a new position entry and initialise risk parameters.
@@ -177,6 +184,7 @@ class RiskManager:
             'stop_price': stop_price,
             'take_profit': take_profit,
             'trailing_stop': trailing_stop,
+            'last_price': price,
         }
         direction = "short" if is_short else "long"
         logger.info(f"Entered {direction} position {symbol} at {price} x{abs(quantity)}")
