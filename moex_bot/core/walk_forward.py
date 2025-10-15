@@ -32,8 +32,8 @@ Example usage::
 from __future__ import annotations
 
 from typing import Callable, List, Dict, Any
+
 import pandas as pd
-import numpy as np
 
 from .metrics import evaluate_strategy
 
@@ -85,13 +85,12 @@ def walk_forward(
         test_end = train_end + base
         if test_end > n:
             break
-        train_df = df.iloc[:train_end].copy()
         test_df = df.iloc[train_end:test_end].copy()
         if len(test_df) < 2:
             continue
-        # Generate signals on test data only.  For simple
-        # strategies the training data are unused; more complex
-        # strategies can inspect train_df within strategy_fn.
+        # Generate signals on test data only.  For simple strategies the
+        # training slice is unused; more complex callables can capture
+        # ``df.iloc[:train_end]`` via a closure if needed.
         signals = strategy_fn(test_df).fillna(0.0)
         close = test_df['close'].astype(float)
         returns = close.pct_change().fillna(0.0)

@@ -10,7 +10,7 @@ to exit trades when risk thresholds are breached.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Dict, Optional
+from typing import Dict
 import datetime
 import logging
 
@@ -122,9 +122,15 @@ class RiskManager:
             total_value = 0.0
             for sym, pos in self.positions.items():
                 try:
-                    total_value += abs(pos['quantity']) * price
+                    last_price = float(
+                        pos.get('last_price', pos.get('entry_price', price))
+                    )
+                    quantity = float(pos.get('quantity', 0.0))
                 except Exception:
                     continue
+                if last_price <= 0:
+                    continue
+                total_value += abs(quantity) * last_price
             allowed_portfolio_value = max(
                 0.0,
                 (self.portfolio_equity * self.max_portfolio_exposure_pct) - total_value,
@@ -177,6 +183,7 @@ class RiskManager:
             'stop_price': stop_price,
             'take_profit': take_profit,
             'trailing_stop': trailing_stop,
+            'last_price': price,
         }
         direction = "short" if is_short else "long"
         logger.info(f"Entered {direction} position {symbol} at {price} x{abs(quantity)}")
@@ -202,6 +209,7 @@ class RiskManager:
             return False
         quantity = pos['quantity']
         is_short = quantity < 0
+        pos['last_price'] = current_price
         if not is_short:
             # Long position: update trailing stop upward if price increases
             new_trailing = current_price * (1 - self.stop_loss_pct)
@@ -240,6 +248,15 @@ class RiskManager:
         for sym in list(self.positions.keys()):
             logger.info(f"Force closing position {sym}")
             del self.positions[sym]
+
+    def update_position_price(self, symbol: str, price: float) -> None:
+        """Refresh the latest observed price for a tracked position."""
+        if price <= 0:
+            return
+        pos = self.positions.get(symbol)
+        if not pos:
+            return
+        pos['last_price'] = price
 
     # ---------------------------------------------------------------------
     # Notification helpers

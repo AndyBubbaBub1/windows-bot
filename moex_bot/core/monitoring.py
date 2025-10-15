@@ -9,7 +9,7 @@ simple HTTP server can be started to serve these metrics.
 from __future__ import annotations
 
 import os
-from prometheus_client import start_http_server, Counter, Gauge, Histogram, CollectorRegistry
+from prometheus_client import start_http_server, Counter, Gauge, CollectorRegistry
 try:
     # Optional multiprocess support for Prometheus
     from prometheus_client import multiprocess

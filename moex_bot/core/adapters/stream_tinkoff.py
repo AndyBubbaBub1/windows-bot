@@ -2,8 +2,7 @@ from __future__ import annotations
 import threading
 from typing import Dict, Iterable, Optional, List
 try:
-    from tinkoff.invest import Client, MarketDataRequest, SubscribeLastPriceRequest, LastPriceInstrument, CandleInterval
-    from tinkoff.invest.services import MarketDataStreamManager
+    from tinkoff.invest import Client, MarketDataRequest, SubscribeLastPriceRequest, LastPriceInstrument
 except Exception:
     Client = None  # allows import without package installed
 
@@ -45,7 +44,6 @@ class TinkoffStreamAdapter:
         if Client is None:
             return
         try:
-            from tinkoff.invest import Client
             with Client(self.token) as client:
                 # resolve tickers -> instruments for subscription
                 instruments: List[LastPriceInstrument] = []

@@ -14,11 +14,11 @@ from __future__ import annotations
 import os
 import math
 from pathlib import Path
-from typing import Optional, Dict, Any
+from typing import Dict, Any
 
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, HTTPException, Depends, Form, Header
+from fastapi import FastAPI, HTTPException, Depends, Header
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from pydantic import BaseModel, Field

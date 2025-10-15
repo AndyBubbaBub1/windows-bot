@@ -1,9 +1,13 @@
+from __future__ import annotations
+
 import pandas as pd
-import numpy as np
+
+from .base import BaseStrategy
 
 # Exported strategy name.  This constant is referenced by the loader
 # and report builder.  Do not modify without updating the configuration.
 STRATEGY_NAME = "atr_trend"
+
 
 def strategy(df: pd.DataFrame, atr_period: int = 14, multiplier: float = 2.0) -> pd.Series:
     """ATR-based trend following strategy.
@@ -21,9 +25,6 @@ def strategy(df: pd.DataFrame, atr_period: int = 14, multiplier: float = 2.0) ->
         Series of signals: 1 for long, -1 for short, 0 for flat.
     """
     return ATRTrendStrategy(atr_period=atr_period, multiplier=multiplier).generate_signals(df)
-
-
-from .base import BaseStrategy
 
 
 class ATRTrendStrategy(BaseStrategy):
@@ -57,12 +58,12 @@ class ATRTrendStrategy(BaseStrategy):
         if df.empty or 'close' not in df.columns:
             return pd.Series(0, index=df.index)
         c = df['close'].astype(float)
-        h = df.get('high', c).astype(float)
-        l = df.get('low', c).astype(float)
+        high_series = df.get('high', c).astype(float)
+        low_series = df.get('low', c).astype(float)
         tr = pd.concat([
-            (h - l),
-            (h - c.shift()).abs(),
-            (l - c.shift()).abs()
+            (high_series - low_series),
+            (high_series - c.shift()).abs(),
+            (low_series - c.shift()).abs()
         ], axis=1).max(axis=1)
         atr = tr.ewm(span=self.atr_period, adjust=False).mean()
         up = c.rolling(1).max() - self.multiplier * atr

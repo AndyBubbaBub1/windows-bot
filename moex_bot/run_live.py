@@ -6,7 +6,6 @@ from pathlib import Path
 from moex_bot.core.data_provider import DataProvider
 from moex_bot.core.adapters.stream_tinkoff import TinkoffStreamAdapter
 from moex_bot.core.adapters.rest_tinkoff import TinkoffRestAdapter
-from moex_bot.core.utils.figi import ticker_to_figi
 from moex_bot.telegram_ext.bot import TgBot, TradeCallbacks
 
 TICKERS = ["SBER","GAZP","LKOH"]
@@ -19,8 +18,6 @@ class TraderCallbacks(TradeCallbacks):
 
 def main() -> None:
     token = os.getenv("TINKOFF_TOKEN")
-    allow_short = (os.getenv("ALLOW_SHORT","false").lower() == "true")
-
     # --- Data provider with stream+REST ---
     stream = TinkoffStreamAdapter(token, tickers=TICKERS)
     rest = TinkoffRestAdapter(token)
@@ -31,7 +28,7 @@ def main() -> None:
     allowed_env = os.getenv("ALLOWED_USERS","").strip()
     allowed = [int(x) for x in allowed_env.split(",") if x.strip().isdigit()]
     db_path = Path("./results/state.sqlite")
-    bot = TgBot(db_path=str(db_path), tinkoff_token=token, allowed_users=allowed, trade_cb=TraderCallbacks())
+    _bot = TgBot(db_path=str(db_path), tinkoff_token=token, allowed_users=allowed, trade_cb=TraderCallbacks())
 
     # Запускаем бота в отдельном процессе/терминале при необходимости.
     # Для простоты — если хотим, запускаем его синхронно:
