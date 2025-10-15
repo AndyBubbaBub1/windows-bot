@@ -35,3 +35,39 @@ def test_allowed_position_size_respects_portfolio_exposure() -> None:
     second_size = rm.allowed_position_size(second_price)
     assert second_size == 0
 
+
+def test_allowed_position_size_honours_full_exposure_cap() -> None:
+    """Exposure limit should apply even when set to 100% of equity."""
+    rm = RiskManager(
+        initial_capital=10_000.0,
+        max_position_pct=0.5,
+        max_portfolio_exposure_pct=1.0,
+        per_trade_risk_pct=1.0,
+        stop_loss_pct=0.1,
+    )
+
+    first_size = rm.allowed_position_size(100.0)
+    rm.register_entry("AAA", 100.0, first_size)
+
+    # Remaining exposure should be half of the equity.
+    second_size = rm.allowed_position_size(500.0)
+    assert second_size == 10
+    rm.register_entry("BBB", 500.0, second_size)
+
+    # The portfolio is now fully deployed; any further attempt must be blocked.
+    third_size = rm.allowed_position_size(50.0)
+    assert third_size == 0
+
+
+def test_allowed_position_size_rejects_zero_exposure_cap() -> None:
+    """Zero exposure cap should disable new positions altogether."""
+    rm = RiskManager(
+        initial_capital=10_000.0,
+        max_position_pct=1.0,
+        max_portfolio_exposure_pct=0.0,
+        per_trade_risk_pct=1.0,
+        stop_loss_pct=0.1,
+    )
+
+    assert rm.allowed_position_size(100.0) == 0
+

@@ -118,23 +118,46 @@ class RiskManager:
         # Enforce portfolio‑level exposure limit.  Sum the market value of existing
         # positions and ensure the new position does not push the total above
         # ``max_portfolio_exposure_pct`` of current equity.
-        if self.max_portfolio_exposure_pct < 1.0:
-            total_value = 0.0
-            for sym, pos in self.positions.items():
-                try:
-                    entry_price = float(pos.get('entry_price', price))
-                    quantity = float(pos.get('quantity', 0.0))
-                except Exception:
-                    continue
-                if entry_price <= 0:
-                    continue
-                total_value += abs(quantity) * entry_price
-            allowed_portfolio_value = max(
-                0.0,
-                (self.portfolio_equity * self.max_portfolio_exposure_pct) - total_value,
+        exposure_cap = max(self.max_portfolio_exposure_pct, 0.0)
+        if exposure_cap <= 0:
+            return 0
+        total_value = 0.0
+        for sym, pos in self.positions.items():
+            try:
+                quantity = float(pos.get('quantity', 0.0))
+            except Exception:
+                continue
+            if quantity == 0:
+                continue
+            # Prefer the stored entry price, but fall back to any cached price for
+            # the instrument.  As a last resort reuse the requested price so that
+            # string or ``None`` values do not break the exposure aggregation.
+            entry_candidates = (
+                pos.get('entry_price'),
+                pos.get('price'),
+                pos.get('last_price'),
+                price,
             )
-            max_by_portfolio = allowed_portfolio_value / max(price, 1e-9)
-            size = min(size, max_by_portfolio)
+            entry_price = None
+            for candidate in entry_candidates:
+                if candidate in (None, ""):
+                    continue
+                try:
+                    converted = float(candidate)
+                except (TypeError, ValueError):
+                    continue
+                if converted > 0:
+                    entry_price = converted
+                    break
+            if entry_price is None:
+                continue
+            total_value += abs(quantity) * entry_price
+        allowed_portfolio_value = max(
+            0.0,
+            (self.portfolio_equity * exposure_cap) - total_value,
+        )
+        max_by_portfolio = allowed_portfolio_value / max(price, 1e-9)
+        size = min(size, max_by_portfolio)
         return int(max(0, size))
 
     def register_entry(self, symbol: str, price: float, quantity: float) -> None:
