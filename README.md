@@ -44,6 +44,11 @@ pip install -e .
 ## FIGI
 Перед отправкой ордеров используйте `ticker_to_figi()` из `moex_bot.core.utils.figi`.
 
+Для динамической загрузки FIGI российских акций доступна утилита
+`load_russian_shares_figi()`, которая получает через API Тинькофф Инвест все
+инструменты с уровнем листинга 1–3 и страной риска/домициляцией `RU`. Полученный
+список можно сохранить в кэш или передать в собственную динамическую вселенную.
+
 ## DataProvider
 `DataProvider(stream=..., rest=...)` делает fallback: stream→REST→cache. 
 Отключение сети: `provider.enabled = False`.
