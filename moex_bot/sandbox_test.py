@@ -10,7 +10,11 @@ TOKEN = "t.VtxWp5QjcwbIQuqg7DYFFocZgtTRN2ofhqisP3cW8SptzsxLzuny5n2LILOjbVm7_o0Pg
 
 def main():
     if Client is None or MoneyValue is None:
-        raise RuntimeError("tinkoff-invest SDK is required to run sandbox_test.py")
+        print(
+            "tinkoff-invest SDK is required to run sandbox_test.py. "
+            "Install the 'tinkoff-investments' package first."
+        )
+        return 1
     with Client(TOKEN) as client:
         print("=== Проверка sandbox аккаунтов ===")
 
@@ -38,5 +42,5 @@ def main():
         print(account_id)
 
 if __name__ == "__main__":
-    main()
+    raise SystemExit(main())
 
