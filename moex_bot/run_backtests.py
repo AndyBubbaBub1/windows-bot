@@ -9,6 +9,7 @@ configuration.
 
 from __future__ import annotations
 from dotenv import load_dotenv
+
 load_dotenv()
 
 from pathlib import Path
@@ -19,7 +20,8 @@ import logging
 # for these imports to resolve without modifying sys.path.  See ``setup.py``
 # and ``pyproject.toml`` for packaging details.
 from moex_bot.core.config import load_config
-from moex_bot.core.backtester import run_backtests, load_strategies_from_config
+from moex_bot.core.engine import Engine
+from moex_bot.core.backtester import load_strategies_from_config
 from moex_bot.core.storage import init_db, save_metrics, save_report_entry
 from moex_bot.core.monitoring import (
     init_prometheus_server,
@@ -37,33 +39,36 @@ def main() -> None:
     configure_logging()
     logger = logging.getLogger(__name__)
     cfg = load_config()
+    engine = Engine.from_config(cfg)
     # Determine initial capital: prefer 'capital' key, fall back to legacy 'start_capital'
-    start_capital = cfg.get('capital') or cfg.get('start_capital') or 1_000_000
-    data_glob_cfg = (cfg.get('data') or {}).get('glob', 'data/*_hour_90d.csv')
+    start_capital = cfg.get("capital") or cfg.get("start_capital") or 1_000_000
+    data_glob_cfg = (cfg.get("data") or {}).get("glob", "data/*_hour_90d.csv")
     # Resolve glob relative to project root
     project_root = Path(__file__).resolve().parent
     data_glob = str(project_root / data_glob_cfg)
-    strategies_cfg = cfg.get('strategies', [])
-    strategies = load_strategies_from_config(cfg)
+    strategies_cfg = cfg.get("strategies", [])
+    strategies = engine.strategies or load_strategies_from_config(cfg)
     if not strategies:
         logger.warning("No valid strategies found in configuration; nothing to backtest.")
         return
     # Margin / leverage configuration shared with risk manager
-    risk_cfg = cfg.get('risk') or {}
+    risk_cfg = cfg.get("risk") or {}
     margin_cfg = risk_cfg.copy()
-    margin_cfg.update(cfg.get('margin') or {})
-    max_leverage = float(margin_cfg.get('max_leverage', 1.0) or 1.0)
-    borrow_rate_pct = float(margin_cfg.get('borrow_rate_pct', 0.0) or 0.0)
-    short_rate_cfg = margin_cfg.get('short_borrow_rate_pct', margin_cfg.get('short_fee_pct'))
+    margin_cfg.update(cfg.get("margin") or {})
+    max_leverage = float(margin_cfg.get("max_leverage", 1.0) or 1.0)
+    borrow_rate_pct = float(margin_cfg.get("borrow_rate_pct", 0.0) or 0.0)
+    short_rate_cfg = margin_cfg.get("short_borrow_rate_pct", margin_cfg.get("short_fee_pct"))
     short_rate_pct = float(short_rate_cfg) if short_rate_cfg is not None else None
-    periods_per_year = int(margin_cfg.get('financing_periods_per_year', margin_cfg.get('periods_per_year', 252)) or 252)
+    periods_per_year = int(
+        margin_cfg.get("financing_periods_per_year", margin_cfg.get("periods_per_year", 252)) or 252
+    )
     borrow_rate = borrow_rate_pct / 100.0
     short_rate = short_rate_pct / 100.0 if short_rate_pct is not None else None
     # Run backtests using optional concurrency defined by MOEX_BACKTEST_WORKERS
-    results = run_backtests(
-        data_glob,
-        strategies,
-        start_capital,
+    results = engine.run_backtests(
+        data_glob=data_glob,
+        strategies=strategies,
+        start_capital=start_capital,
         leverage=max_leverage,
         borrow_rate=borrow_rate,
         short_rate=short_rate,
@@ -73,14 +78,14 @@ def main() -> None:
         logger.warning("No data matched the glob pattern; nothing to backtest.")
         return
     # Determine output directory once
-    out_dir_cfg = (cfg.get('results_dir') or 'results')
+    out_dir_cfg = cfg.get("results_dir") or "results"
     out_dir = str(project_root / out_dir_cfg)
     # Generate standard backtest reports (CSV/HTML/JSON/Parquet)
     generate_reports(results, data_glob, strategies, out_dir, start_capital)
     logger.info(f"Reports generated in {out_dir}")
 
     # Auto-select strategies and propose portfolio allocations
-    auto_cfg = cfg.get('auto_selector') or {}
+    auto_cfg = cfg.get("auto_selector") or {}
     try:
         auto_df = auto_select_strategies(
             results,
@@ -92,24 +97,24 @@ def main() -> None:
             borrow_rate,
             short_rate,
             periods_per_year,
-            cfg.get('strategies', {}),
+            cfg.get("strategies", {}),
         )
     except Exception as auto_exc:
         logger.warning(f"Failed to auto-select strategies: {auto_exc}")
         auto_df = None
     auto_files = []
     if auto_df is not None and not auto_df.empty:
-        auto_csv = Path(out_dir) / 'auto_selected_strategies.csv'
-        auto_json = Path(out_dir) / 'auto_selected_strategies.json'
+        auto_csv = Path(out_dir) / "auto_selected_strategies.csv"
+        auto_json = Path(out_dir) / "auto_selected_strategies.json"
         auto_df.to_csv(auto_csv, index=False)
-        auto_df.to_json(auto_json, orient='records', force_ascii=False)
+        auto_df.to_json(auto_json, orient="records", force_ascii=False)
         auto_files.extend([auto_csv, auto_json])
         try:
             import yaml
 
-            snippet = format_selection_for_config(auto_df, cfg.get('strategies', {}))
-            auto_yaml = Path(out_dir) / 'auto_selected_config.yaml'
-            with open(auto_yaml, 'w', encoding='utf-8') as fh:
+            snippet = format_selection_for_config(auto_df, cfg.get("strategies", {}))
+            auto_yaml = Path(out_dir) / "auto_selected_config.yaml"
+            with open(auto_yaml, "w", encoding="utf-8") as fh:
                 yaml.safe_dump(snippet, fh, sort_keys=False, allow_unicode=True)
             auto_files.append(auto_yaml)
         except Exception as yaml_exc:
@@ -122,14 +127,15 @@ def main() -> None:
     try:
         from moex_bot.core.walk_forward import walk_forward
         import pandas as _pd  # local import to avoid mandatory dependency for runtime
+
         walk_rows = []
         # Use three splits by default; override via config
-        wf_cfg = cfg.get('walk_forward', {}) or {}
+        wf_cfg = cfg.get("walk_forward", {}) or {}
         try:
-            n_splits = int(wf_cfg.get('n_splits', 3))
+            n_splits = int(wf_cfg.get("n_splits", 3))
         except Exception:
             n_splits = 3
-        for file in results['file'].unique():
+        for file in results["file"].unique():
             # Try to resolve file path relative to the project root
             file_path = None
             fp = project_root / file
@@ -138,7 +144,7 @@ def main() -> None:
             else:
                 # Search within data_glob pattern
                 try:
-                    matches = list((project_root / '.').glob(file))
+                    matches = list((project_root / ".").glob(file))
                 except Exception:
                     matches = []
                 if matches:
@@ -160,18 +166,18 @@ def main() -> None:
                     continue
                 if summary.empty:
                     continue
-                summary['file'] = file
-                summary['strategy'] = strat_name
+                summary["file"] = file
+                summary["strategy"] = strat_name
                 walk_rows.append(summary)
         if walk_rows:
             wf_df = _pd.concat(walk_rows, ignore_index=True)
             # Save walk-forward report in various formats
-            wf_csv = project_root / out_dir_cfg / 'walk_forward_report.csv'
+            wf_csv = project_root / out_dir_cfg / "walk_forward_report.csv"
             wf_df.to_csv(wf_csv, index=False)
             try:
-                wf_json = project_root / out_dir_cfg / 'walk_forward_report.json'
-                wf_df.to_json(wf_json, orient='records', force_ascii=False)
-                wf_parquet = project_root / out_dir_cfg / 'walk_forward_report.parquet'
+                wf_json = project_root / out_dir_cfg / "walk_forward_report.json"
+                wf_df.to_json(wf_json, orient="records", force_ascii=False)
+                wf_parquet = project_root / out_dir_cfg / "walk_forward_report.parquet"
                 wf_df.to_parquet(wf_parquet, index=False)
             except Exception:
                 pass
@@ -181,64 +187,65 @@ def main() -> None:
 
     # Prometheus monitoring: start metrics server on first run
     try:
-        init_prometheus_server(port=int(os.getenv('PROM_PORT', '8001')))
+        init_prometheus_server(port=int(os.getenv("PROM_PORT", "8001")))
     except Exception as exc:
         logger.debug(f"Prometheus server init failed: {exc}")
     # Record backtest run metric
     record_backtest_run()
     # Update strategy PnL gauges
     for _, row in results.iterrows():
-        strategy_name = row.get('strategy')
-        pnl = row.get('pnl_pct')
+        strategy_name = row.get("strategy")
+        pnl = row.get("pnl_pct")
         if strategy_name is not None and pnl is not None:
             try:
                 update_strategy_pnl(strategy_name, pnl)
             except Exception:
                 pass
     # Update portfolio equity gauge using last value from portfolio equity curve file
-    port_equity_file = Path(out_dir) / 'portfolio_equity.png'
+    port_equity_file = Path(out_dir) / "portfolio_equity.png"
     # To update gauge we need numeric value; approximate using metrics file
-    metrics_file = Path(out_dir) / 'portfolio_metrics.csv'
+    metrics_file = Path(out_dir) / "portfolio_metrics.csv"
     if metrics_file.exists():
         try:
             import pandas as pd
+
             dfm = pd.read_csv(metrics_file)
             # portfolio row last metrics maybe final absolute PnL
-            portfolio_row = dfm[dfm['strategy'] == 'Portfolio']
+            portfolio_row = dfm[dfm["strategy"] == "Portfolio"]
             if not portfolio_row.empty:
-                pnl_pct = portfolio_row.iloc[0].get('pnl_pct', 0.0)
+                pnl_pct = portfolio_row.iloc[0].get("pnl_pct", 0.0)
                 update_portfolio_equity(start_capital * (1 + pnl_pct))
         except Exception as exc:
             logger.debug(f"Failed to update portfolio equity gauge: {exc}")
 
     # Initialise and record metrics and report entries in the database
-    db_path_cfg = cfg.get('database') or f"{out_dir_cfg}/history.db"
+    db_path_cfg = cfg.get("database") or f"{out_dir_cfg}/history.db"
     db_path = str(project_root / db_path_cfg)
     init_db(db_path)
     # Save metrics for each strategy in results
     if not results.empty:
         for _, row in results.iterrows():
             metrics = row.to_dict()
-            strategy_name = metrics.pop('strategy', None)
+            strategy_name = metrics.pop("strategy", None)
             # Remove non-metric columns
-            metrics.pop('file', None)
-            save_metrics(db_path, strategy_name or 'unknown', metrics)
+            metrics.pop("file", None)
+            save_metrics(db_path, strategy_name or "unknown", metrics)
     # Save report entries
-    save_report_entry(db_path, None, 'csv', str(Path(out_dir)/'backtest_report.csv'))
-    save_report_entry(db_path, None, 'csv', str(Path(out_dir)/'best_strategies_top3.csv'))
-    save_report_entry(db_path, None, 'html', str(Path(out_dir)/'auto_report.html'))
+    save_report_entry(db_path, None, "csv", str(Path(out_dir) / "backtest_report.csv"))
+    save_report_entry(db_path, None, "csv", str(Path(out_dir) / "best_strategies_top3.csv"))
+    save_report_entry(db_path, None, "html", str(Path(out_dir) / "auto_report.html"))
     for auto_file in auto_files:
-        save_report_entry(db_path, None, auto_file.suffix.lstrip('.'), str(auto_file))
+        save_report_entry(db_path, None, auto_file.suffix.lstrip("."), str(auto_file))
     # Telegram notification
-    telegram_cfg = cfg.get('telegram') or {}
-    token = telegram_cfg.get('token')
-    chat_id = telegram_cfg.get('chat_id')
+    telegram_cfg = cfg.get("telegram") or {}
+    token = telegram_cfg.get("token")
+    chat_id = telegram_cfg.get("chat_id")
     if token and chat_id:
         text = f"Backtests complete. Files: {len(results['file'].unique())}"
         files = [
-            Path(out_dir)/'backtest_report.csv',
-            Path(out_dir)/'best_strategies_top3.csv',
-            Path(out_dir)/'auto_report.html',
+            Path(out_dir) / "backtest_report.csv",
+            Path(out_dir) / "best_strategies_top3.csv",
+            Path(out_dir) / "auto_report.html",
         ]
         files.extend(auto_files)
         try:
@@ -248,5 +255,5 @@ def main() -> None:
             logger.warning(f"Failed to send Telegram notification: {exc}")
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()
