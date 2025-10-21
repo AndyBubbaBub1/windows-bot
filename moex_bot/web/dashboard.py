@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import Dict, List
+from pathlib import Path
+from typing import List
 
 import dash
 from dash import Dash, Input, Output, dcc, html, dash_table
@@ -25,7 +26,8 @@ def _available_symbols(engine: Engine) -> List[str]:
 
 
 def create_dashboard_app(engine: Engine) -> Dash:
-    dash_app = Dash(__name__, requests_pathname_prefix="/")
+    assets_dir = Path(__file__).resolve().parent / "static"
+    dash_app = Dash(__name__, requests_pathname_prefix="/", assets_folder=str(assets_dir))
     symbols = _available_symbols(engine)
 
     dash_app.layout = html.Div(
@@ -112,9 +114,42 @@ def create_dashboard_app(engine: Engine) -> Dash:
                     "last_price": pos.get("last_price", pos.get("entry_price", 0)),
                 }
             )
-        equity = engine.risk_manager.portfolio_equity
-        peak = engine.risk_manager.peak_equity
-        summary = f"Капитал: {equity:,.0f} ₽ | Пик: {peak:,.0f} ₽"
+        snapshot = engine.risk_manager.session_summary()
+        summary = html.Div(
+            [
+                html.Div(
+                    [
+                        html.Div("Капитал", className="risk-label"),
+                        html.Div(f"{snapshot['equity']:,.0f} ₽", className="risk-value"),
+                    ],
+                    className="risk-card",
+                ),
+                html.Div(
+                    [
+                        html.Div("PnL", className="risk-label"),
+                        html.Div(f"{snapshot['pnl']:,.0f} ₽", className="risk-value"),
+                    ],
+                    className="risk-card",
+                ),
+                html.Div(
+                    [
+                        html.Div("Гросс", className="risk-label"),
+                        html.Div(f"{snapshot['gross_exposure']:,.0f} ₽", className="risk-value"),
+                    ],
+                    className="risk-card",
+                ),
+                html.Div(
+                    [
+                        html.Div("Просадка", className="risk-label"),
+                        html.Div(
+                            f"{snapshot['intraday_drawdown_pct']:.2%}", className="risk-value"
+                        ),
+                    ],
+                    className="risk-card",
+                ),
+            ],
+            className="risk-grid",
+        )
         return price_fig, indicator_fig, positions, summary
 
     @dash_app.callback(
