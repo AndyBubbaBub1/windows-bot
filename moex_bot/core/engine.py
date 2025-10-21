@@ -24,7 +24,7 @@ import logging
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional, Dict
+from typing import Any, Optional, Dict, Set
 
 import pandas as pd
 
@@ -485,8 +485,11 @@ class Engine:
 
         active = self.enabled_strategy_names()
         if not active:
-            logger.warning("Все стратегии отключены — цикл пропущен")
-            return
+            logger.warning(
+                "Все стратегии отключены — выполняется только контроль рисков"
+            )
+
+        handled_risk_symbols: Set[str] = set()
 
         for strat_name, strat_callable in self.strategies.items():
             if strat_name not in active:
@@ -500,31 +503,9 @@ class Engine:
                 history = self.data_provider.load_history(symbol_uc, interval="hour", days=90)
                 if history.empty:
                     continue
-                price = await self._wait_for_price(symbol_uc)
+                price = await self._handle_risk_for_symbol(symbol_uc, token, chat_id)
+                handled_risk_symbols.add(symbol_uc)
                 if price is None:
-                    continue
-                self.risk_manager.update_position_price(symbol_uc, price)
-                if self.risk_manager.check_exit(symbol_uc, price):
-                    lots_to_close = int(
-                        self.risk_manager.positions.get(symbol_uc, {}).get("quantity", 0)
-                    )
-                    if lots_to_close > 0:
-                        self.trader.sell(figi=symbol_uc, lots=lots_to_close)
-                    elif lots_to_close < 0:
-                        self.trader.buy(figi=symbol_uc, lots=abs(lots_to_close))
-                    self.risk_manager.exit_position(symbol_uc)
-                    if token and chat_id:
-                        try:
-                            from ..reporting.report_builder import send_telegram_message
-
-                            send_telegram_message(
-                                f"Закрытие позиции {symbol_uc} по сигналу риск‑менеджера",
-                                [],
-                                token,
-                                chat_id,
-                            )
-                        except Exception:
-                            pass
                     continue
 
                 try:
@@ -542,7 +523,47 @@ class Engine:
                 elif last_signal < 0:
                     await self._ensure_short(symbol_uc, price, allowed_lots, strat_name)
 
+        remaining_positions = {
+            str(sym).upper()
+            for sym in list(self.risk_manager.positions.keys())
+            if str(sym).upper() not in handled_risk_symbols
+        }
+        for symbol_uc in remaining_positions:
+            await self._handle_risk_for_symbol(symbol_uc, token, chat_id)
+
         self._mark_to_market()
+
+    async def _handle_risk_for_symbol(
+        self, symbol_uc: str, token: Optional[str], chat_id: Optional[str]
+    ) -> Optional[float]:
+        price = await self._wait_for_price(symbol_uc)
+        if price is None:
+            return None
+        self.risk_manager.update_position_price(symbol_uc, price)
+        if not self.risk_manager.check_exit(symbol_uc, price):
+            return price
+
+        lots_to_close = int(
+            self.risk_manager.positions.get(symbol_uc, {}).get("quantity", 0)
+        )
+        if lots_to_close > 0:
+            self.trader.sell(figi=symbol_uc, lots=lots_to_close)
+        elif lots_to_close < 0:
+            self.trader.buy(figi=symbol_uc, lots=abs(lots_to_close))
+        self.risk_manager.exit_position(symbol_uc)
+        if token and chat_id:
+            try:
+                from ..reporting.report_builder import send_telegram_message
+
+                send_telegram_message(
+                    f"Закрытие позиции {symbol_uc} по сигналу риск‑менеджера",
+                    [],
+                    token,
+                    chat_id,
+                )
+            except Exception:
+                pass
+        return None
 
     async def _ensure_long(
         self, symbol: str, price: float, allowed_lots: int, strat_name: str
