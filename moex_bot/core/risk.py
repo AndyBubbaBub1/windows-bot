@@ -326,6 +326,11 @@ class RiskManager:
                 continue
         return total_value
 
+    def gross_exposure(self) -> float:
+        """Возвращает суммарную абсолютную позицию портфеля."""
+
+        return self._current_gross_exposure()
+
     def portfolio_market_value(self) -> float:
         total_value = 0.0
         for pos in self.positions.values():
@@ -335,6 +340,11 @@ class RiskManager:
             except Exception:
                 continue
         return total_value
+
+    def net_exposure(self) -> float:
+        """Возвращает чистую рыночную стоимость портфеля."""
+
+        return self.portfolio_market_value()
 
     def update_position_price(self, symbol: str, price: float) -> None:
         pos = self.positions.get(symbol)
@@ -398,6 +408,7 @@ class RiskManager:
                 self._log_event("Тейк-профит", symbol=symbol, value=current_price)
                 return True
             return False
+
         new_trailing = current_price * (1 + self.stop_loss_pct)
         if new_trailing < pos.get("trailing_stop", pos["stop_price"]):
             pos["trailing_stop"] = new_trailing
@@ -410,6 +421,23 @@ class RiskManager:
             self._log_event("Тейк-профит", symbol=symbol, value=current_price)
             return True
         return False
+
+    def session_summary(self) -> Dict[str, float | int | bool]:
+        """Готовит агрегированную сводку по завершённой сессии."""
+
+        intraday_drawdown = (self.day_start_equity - self.portfolio_equity) / max(
+            self.day_start_equity, 1e-9
+        )
+        return {
+            "equity": float(self.portfolio_equity),
+            "pnl": float(self.portfolio_equity - self.initial_capital),
+            "gross_exposure": float(self.gross_exposure()),
+            "net_exposure": float(self.net_exposure()),
+            "open_positions": int(len(self.positions)),
+            "halt_trading": bool(self.halt_trading),
+            "max_drawdown_pct": float(self.max_drawdown_pct),
+            "intraday_drawdown_pct": float(intraday_drawdown),
+        }
 
     def exit_position(self, symbol: str) -> None:
         if symbol in self.positions:

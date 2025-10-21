@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import datetime as dt
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional, Callable, Dict
+from pathlib import Path
+from typing import Any, Optional, Dict
 
 import pandas as pd
 
@@ -88,6 +91,8 @@ class Engine:
         self.risk_manager.attach_journal(self.journal)
         self.risk_manager.set_notifier(self._notify_risk)
         self.risk_manager.set_force_exit_callback(self._force_exit_position)
+
+        self.results_dir = Path(self.cfg.get("results_dir", "results"))
 
         initial_mode = cfg.get("trade_mode") or "sandbox"
         self.state.trade_mode = str(initial_mode)
@@ -179,6 +184,7 @@ class Engine:
     def stop(self) -> None:
         self.state.running = False
         logger.info("⏸ Торговый движок остановлен")
+        self._finalize_session()
 
     def toggle_mode(self) -> str:
         self.state.trade_mode = "real" if self.state.trade_mode == "sandbox" else "sandbox"
@@ -197,6 +203,104 @@ class Engine:
                 send_telegram_message(message, [], token, chat_id)
             except Exception as exc:
                 logger.debug("Risk notification failed: %s", exc)
+
+    def _finalize_session(self) -> None:
+        try:
+            summary = self._build_session_summary()
+        except Exception as exc:
+            logger.warning("Не удалось собрать сводку сессии: %s", exc)
+            summary = None
+
+        try:
+            self.results_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            logger.debug("Не удалось создать каталог результатов %s", self.results_dir)
+
+        try:
+            journal_path = self.results_dir / "risk_journal.csv"
+            self.journal.flush(journal_path)
+        except Exception as exc:
+            logger.debug("Не удалось сохранить журнал рисков: %s", exc)
+
+        if summary is None:
+            return
+
+        try:
+            self._append_session_summary(summary)
+        except Exception as exc:
+            logger.debug("Не удалось обновить журнал сессий: %s", exc)
+        self._notify_session_summary(summary)
+
+    def _build_session_summary(self) -> Dict[str, Any]:
+        snapshot = self.risk_manager.session_summary()
+        positions_detail: list[str] = []
+        for symbol, pos in self.risk_manager.positions.items():
+            qty = pos.get("quantity", 0)
+            price = pos.get("last_price", pos.get("entry_price", 0))
+            positions_detail.append(f"{symbol}:{qty}@{price}")
+        return {
+            "timestamp": dt.datetime.utcnow().isoformat(),
+            "mode": self.state.trade_mode,
+            "equity": snapshot["equity"],
+            "pnl": snapshot["pnl"],
+            "gross_exposure": snapshot["gross_exposure"],
+            "net_exposure": snapshot["net_exposure"],
+            "open_positions": snapshot["open_positions"],
+            "positions": " | ".join(positions_detail),
+            "halt_trading": snapshot["halt_trading"],
+            "max_drawdown_pct": snapshot["max_drawdown_pct"],
+            "intraday_drawdown_pct": snapshot["intraday_drawdown_pct"],
+            "peak_equity": float(self.risk_manager.peak_equity),
+        }
+
+    def _append_session_summary(self, summary: Dict[str, Any]) -> None:
+        session_path = self.results_dir / "session_history.csv"
+        fieldnames = [
+            "timestamp",
+            "mode",
+            "equity",
+            "pnl",
+            "gross_exposure",
+            "net_exposure",
+            "open_positions",
+            "positions",
+            "halt_trading",
+            "max_drawdown_pct",
+            "intraday_drawdown_pct",
+            "peak_equity",
+        ]
+        is_new = not session_path.exists()
+        with session_path.open("a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            if is_new:
+                writer.writeheader()
+            writer.writerow(summary)
+
+    def _notify_session_summary(self, summary: Dict[str, Any]) -> None:
+        telegram_cfg = self.cfg.get("telegram", {}) or {}
+        token = telegram_cfg.get("token")
+        chat_id = telegram_cfg.get("chat_id")
+        if not (token and chat_id):
+            return
+        try:
+            from ..reporting.report_builder import send_telegram_message
+
+            pnl = summary.get("pnl", 0.0)
+            pnl_str = f"{pnl:,.0f} ₽" if isinstance(pnl, (int, float)) else str(pnl)
+            equity = summary.get("equity", 0.0)
+            equity_str = f"{equity:,.0f} ₽" if isinstance(equity, (int, float)) else str(equity)
+            positions = summary.get("positions") or "нет"
+            message = (
+                "📝 Итоги торговой сессии\n"
+                f"Режим: {summary.get('mode')}\n"
+                f"Капитал: {equity_str}\n"
+                f"PnL: {pnl_str}\n"
+                f"Открытые позиции: {summary.get('open_positions')} ({positions})\n"
+                f"Текущая просадка: {summary.get('intraday_drawdown_pct', 0):.2%}"
+            )
+            send_telegram_message(message, [], token, chat_id)
+        except Exception as exc:
+            logger.debug("Не удалось отправить сводку в Telegram: %s", exc)
 
     def _force_exit_position(self, symbol: str) -> None:
         symbol = symbol.upper()
