@@ -79,7 +79,7 @@ def main
     # Determine equity file path: mirror logic from live loop for consistency
     equity_file = cfg.get('equity_file')
     if not equity_file:
-        res_dir = cfg.get('results_path') or cfg.get('results_dir') or 'results'
+        res_dir = cfg.get('results_dir') or cfg.get('results_path') or 'results'
         equity_file = str((Path(res_dir) / 'portfolio_equity.txt').resolve())
     bot = TelegramBot(token, allowed_users, trader, risk_manager, portfolio_manager, equity_file=equity_file)
     # Run polling loop

@@ -1,9 +1,8 @@
 capital: 1000000
 commission: 0.0004
 data_path: data
-results_path: results
 results_dir: results
-db_path: results/history.db
+database: results/history.db
 
 data:
   interval: hour
@@ -26,43 +25,30 @@ data:
     include_figi: true
     export: true
     export_path: data/universe.csv
-# Margin and leverage settings used for backtests and live risk management.
+
+# Параметры маржинальной торговли для бэктестов и живого режима.
 margin:
   max_leverage: 2.0
   borrow_rate_pct: 12.0
   short_borrow_rate_pct: 15.0
   financing_periods_per_year: 252
 
-# Trading mode selection.  One of ``live``, ``virtual`` or ``sandbox``.
-# In ``live`` mode orders are sent to the production Tinkoff API.
-# In ``virtual`` mode signals are generated using live data but
-# orders are only logged and not executed.  In ``sandbox`` mode the
-# sandbox service is used when available.  The Trader class will
-# interpret this setting together with the ``sandbox`` flag under
-# ``tinkoff``.
+# Режим работы: ``live`` (боевой), ``virtual`` (без отправки заявок)
+# или ``sandbox`` (песочница Tinkoff).
 trade_mode: sandbox
 
-# Telegram configuration.  Tokens and chat identifiers should be
-# provided via environment variables to avoid storing secrets in
-# version control.  The ``${VAR}`` syntax instructs the loader to
-# expand the value from the corresponding environment variable or
-# leave it empty if undefined.
+# Параметры Telegram. Значения рекомендуется задавать через переменные
+# окружения, используя синтаксис ``${VAR}``.
 telegram:
   token: ${TELEGRAM_TOKEN}
   chat_id: ${TELEGRAM_CHAT_ID}
 
-  # List of allowed Telegram user identifiers for command handling.
-  # If empty, all users are denied.  Commands received from users
-  # not in this list will be ignored for security reasons.
+  # Разрешённые пользователи Telegram (ID). Если список пуст, команды
+  # будут игнорироваться.
   allowed_users: []
 
-# Strategy definitions.  Each key defines a unique strategy name.
-# ``class`` specifies the class to instantiate from the
-# ``moex_bot_new.strategies`` package.  Parameters for the
-# constructor are provided under ``params``.  ``symbols`` lists
-# tickers that the strategy should monitor in live trading.  For
-# backtesting the symbols list is ignored; instead the backtester
-# will apply strategies to all files matching the data glob.
+# Стратегии: имя → класс и параметры.
+# ``symbols`` определяет тикеры для живого наблюдения.
 strategies:
   sma_strategy:
     class: SMAStrategy
@@ -111,7 +97,7 @@ strategies:
       - SBER
       - GAZP
 
-  # Additional strategies added for more variety
+  # Дополнительные стратегии для демонстрации возможностей.
   rsi:
     class: RSIStrategy
     module: rsi
@@ -157,9 +143,7 @@ strategies:
       - GAZP
       - LKOH
 
-# Risk management parameters.  These values override the defaults
-# in :class:`RiskManager` when provided.  Each key corresponds to
-# a dataclass field of ``RiskManager``.
+# Настройки риск-менеджера. Ключи соответствуют параметрам ``RiskManager``.
 risk:
   max_drawdown_pct: 0.2
   max_daily_loss_pct: 0.1
@@ -193,22 +177,19 @@ risk:
     fx:
       max_exposure_pct: 0.3
 
-# Schedule of recurring jobs.  A daily backtest is run at 08:00
-# server time.  A live trading loop runs every minute to evaluate
-# strategies on the latest market data and send orders when
-# appropriate.  Modify the cron expressions to adjust timing.
+# Планировщик задач (формат cron).
 schedule:
   daily_backtest:
-    func: "moex_bot.run_backtests.main"  # call the main function from the script
+    func: "moex_bot.run_backtests.main"  # основной бэктестовый сценарий
     cron: "0 8 * * *"
   live_trading:
     func: "moex_bot.run_live.main"
-    cron: "*/1 * * * *"  # every minute
+    cron: "*/1 * * * *"  # каждую минуту
   data_update:
     func: "moex_bot.update_data.run_scheduled_update"
     cron: "30 6 * * 1-5"
 
-# Portfolio allocation: target weights for each strategy; must sum to 1.0.
+# Целевые веса стратегий (в сумме 1.0).
 portfolio:
   target_allocations:
     sma_strategy: 0.15
@@ -222,7 +203,7 @@ portfolio:
     news_sentiment: 0.05
     lstm_predict: 0.05
 
-# Automated strategy selection preferences used in backtest reporting.
+# Автоподбор стратегий и гипероптимизация.
 auto_selector:
   enabled: true
   top_n: 5
@@ -234,32 +215,22 @@ auto_selector:
   hyperopt:
     enabled: false
 
-# HTTP server configuration for the FastAPI dashboard.  By default
-# binds to localhost; override via environment variables
-# ``MOEX_API_HOST`` and ``MOEX_API_PORT``.
+# HTTP-сервер FastAPI/Dash. Можно переопределить через ``MOEX_API_HOST``
+# и ``MOEX_API_PORT``.
 server:
   host: 127.0.0.1
   port: 8000
 
-# Tinkoff broker API configuration.  Secrets are pulled from
-# environment variables.  Set ``TINKOFF_SANDBOX=true`` to enable
-# sandbox mode.  The ``token`` and ``account_id`` keys default to
-# empty strings if the corresponding environment variables are not
-# defined.  In sandbox mode no real money is traded.
+# Настройки брокерского API Tinkoff. ``sandbox`` включает песочницу.
 tinkoff:
-  # API token for production (live) mode.  Set this to your Tinkoff Invest token.
+  # Токен боевого режима (обязателен для live).
   token: ${TINKOFF_TOKEN}
-  # Account identifier for production mode.
+  # Боевой счёт.
   account_id: ${TINKOFF_ACCOUNT_ID}
-  # Flag indicating whether to use sandbox endpoints (true/false).
+  # Флаг использования песочницы (true/false).
   sandbox: ${TINKOFF_SANDBOX}
-  # Optional sandbox token; if provided and sandbox=true, overrides the production token.
+  # Токен песочницы (при ``sandbox=true``).
   sandbox_token: ${TINKOFF_SANDBOX_TOKEN}
-  # Optional sandbox account id; if provided and sandbox=true, overrides the production account.
+  # Счёт песочницы.
   account_id_sandbox: ${TINKOFF_ACCOUNT_ID_SANDBOX}
-
-# Database location.  Relative paths are resolved relative to the
-# project root.  The default places the SQLite database in the
-# ``results`` directory.
-database: results/history.db
 
