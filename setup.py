@@ -31,6 +31,8 @@ setup(
             "moex-backtests=moex_bot.run_backtests:main",
             "moex-server=moex_bot.run_server:main",
             "moex-all=moex_bot.run_all:main",
+            "moex-desktop=moex_bot.ui.desktop:launch_desktop",
+            "moex-package=moex_bot.tools.build:main",
         ],
     },
 )

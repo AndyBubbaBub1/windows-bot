@@ -1,7 +1,7 @@
 capital: 1000000
 commission: 0.0004
 data_path: data
-results_path: results
+# Каталог для отчётов и журналов; ранее использовалось имя ``results_path``.
 results_dir: results
 db_path: results/history.db
 
@@ -11,6 +11,21 @@ data:
   extra_symbols:
     - USD000UTSTOM
     - FXRL
+  universe:
+    enabled: true
+    classes:
+      - equity
+      - etf
+      - bond
+      - futures
+      - fx
+    tiers:
+      - tier1_2
+      - tier3
+    exclude: []
+    include_figi: true
+    export: true
+    export_path: data/universe.csv
 # Margin and leverage settings used for backtests and live risk management.
 margin:
   max_leverage: 2.0
@@ -187,8 +202,11 @@ schedule:
     func: "moex_bot.run_backtests.main"  # call the main function from the script
     cron: "0 8 * * *"
   live_trading:
-    func: "moex_bot.core.live_loop.run_live_cycle"
+    func: "moex_bot.run_live.main"
     cron: "*/1 * * * *"  # every minute
+  data_update:
+    func: "moex_bot.update_data.run_scheduled_update"
+    cron: "30 6 * * 1-5"
 
 # Portfolio allocation: target weights for each strategy; must sum to 1.0.
 portfolio:

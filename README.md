@@ -1,146 +1,165 @@
+# MOEX Bot
 
-# MOEX Bot (packaged)
+Комплексное решение для алгоритмической торговли через Tinkoff Invest API. Проект объединяет
+единый движок `Engine`, обновляемые рыночные данные, расширенный риск‑менеджер и набор
+веб/desktop интерфейсов для управления стратегиями.
 
 ## Установка (разработка)
+
 ```bash
 python -m venv .venv
-# Windows:
-#   .venv\Scripts\activate
-# Linux/Mac:
-#   source .venv/bin/activate
+# Windows: .venv\\Scripts\\activate
+# Linux/macOS: source .venv/bin/activate
 pip install -e .
 ```
 
-## Команды CLI
-- `moex-live` — запустить живой трейдинг
-- `moex-backtests` — бэктесты
-- `moex-server` — веб-сервер (FastAPI/Uvicorn)
-- `moex-all` — последовательный запуск (бэктест → сервер → планировщик)
-- `moex-diagnostics` — проверка окружения и подключения к Tinkoff
+После установки доступны команды:
 
-## Новая веб-панель
-- После запуска `moex-server` доступна панель `/dashboard` с графиками цен, контролем стратегий и отображением позиций.
-- Панель построена на Dash/Plotly и обновляется автоматически каждые 15 секунд.
-- Кнопки `Старт`/`Стоп` управляют торговым циклом напрямую через общий движок, а переключатель режима меняет sandbox/real.
+- `moex-live` — запуск живого цикла через `Engine`.
+- `moex-backtests` — пакетный прогон стратегий и формирование отчётов.
+- `moex-server` — FastAPI + Dash сервер с веб‑панелью `/dashboard`.
+- `moex-all` — последовательный запуск бэктестов, сервера и планировщика.
+- `moex-diagnostics` — проверка окружения и подключения к Tinkoff API.
+- `moex-desktop` — настольная оболочка на Tkinter.
+- `moex-package` — сборка Docker-образа или автономного `.exe`.
+
+## Установка (Windows)
+
+1. Установите Python 3.10+.
+2. Запустите `setup_env.bat` (создаст виртуальное окружение и установит пакет).
+3. Скопируйте `.env.example` в `.env`, заполните токены (`TINKOFF_TOKEN`, `TELEGRAM_TOKEN` и т.д.).
+
+Готовые батники `run_live.bat`, `run_backtests.bat`, `run_server.bat` и др. запускают соответствующие
+сценарии без открытия терминала Python.
+
+## Графические интерфейсы
+
+### Веб‑панель `/dashboard`
+
+Запустите `moex-server` и откройте `http://127.0.0.1:8000/dashboard`.
+
+- **Обзор** — свечной график с SMA/волатильностью, таблица позиций, карта риск‑метрик и диаграмма экспозиции.
+- **Стратегии** — чекбоксы включения/отключения, запуск бэктеста в один клик и отображение активных алгоритмов.
+- **Риски** — live‑журнал RiskManager, история сессий (PnL, просадки, режим торговли).
+- **Планировщик** — визуализация cron‑задач из `config.yaml`.
+
+Панель обновляется каждые 15 секунд, напрямую используя методы `Engine`
+(`list_strategies()`, `set_strategy_enabled()`, `positions_snapshot()` и т.д.).
+
+### Настольное приложение `moex-desktop`
+
+Tkinter-клиент подключается к общему движку и обеспечивает:
+
+- кнопки «Старт», «Стоп», «Переключить режим»;
+- чекбоксы стратегий, синхронизированные с состоянием движка;
+- карточки капитала, PnL, gross exposure и просадки;
+- таблицу позиций и live‑журнал RiskManager;
+- запуск бэктеста без терминала.
+
+Интерфейс обновляет данные каждые 2 секунды и корректно завершает торговую сессию при закрытии окна.
 
 ## Универсальный движок Engine
-- Все сценарии (`moex-live`, `moex-backtests`, веб-интерфейс) используют класс `moex_bot.core.engine.Engine`.
-- Движок объединяет провайдер данных, брокера, риск-менеджер и журнал, поддерживает асинхронный live-цикл и общий API для бэктестов.
-- Live-цикл работает на asyncio и предпочитает потоковый провайдер Tinkoff, переключаясь на CSV при отсутствии соединения.
+
+Все сценарии (`moex-live`, `moex-backtests`, веб/desktop UI) используют класс
+`moex_bot.core.engine.Engine`. Движок инкапсулирует провайдер данных, брокера, риск‑менеджер,
+портфельный менеджер и журнал сессий.
+
+- Асинхронный live‑цикл предпочитает потоковый провайдер Tinkoff (WebSocket), переключаясь на REST/CSV при сбое.
+- Методы `start()`, `run_live_once()` и `stop()` управляют торговым циклом, поддерживается переключение sandbox/live режимов.
+- `run_backtests()` делегирует расчёты `core.backtester`, сохраняя единые настройки комиссий, плеча и риска.
+- `session_history()` и `risk_journal` сохраняют сводки после каждой сессии и используются веб/desktop интерфейсами.
 
 ## Автоматическое обновление данных
-- Скрипт `python -m moex_bot.update_data` загружает свечи по всем тикерам из `config.yaml` и складывает в `data/`.
-- Функцию `moex_bot.update_data.run_scheduled_update` можно добавить в планировщик (`config.yaml > schedule`) для ежедневного обновления.
-- Параметры интервала и дополнительных инструментов задаются в блоке `data` конфигурации.
 
-## Расширенный риск-менеджер
-- `RiskManager` поддерживает индивидуальные лимиты на тикер, правила по классам активов и поток мониторинга просадок.
-- После каждой сессии сохраняется журнал `results/risk_journal.csv`, который можно использовать для анализа и уведомлений.
-- Новые параметры (`risk.instrument_limits`, `risk.asset_class_limits`, `risk.instrument_classes`, `risk.monitor_interval`) документированы в `config.yaml`.
+`moex_bot/update_data.py` загружает исторические свечи, обновляет вселенную инструментов
+(акции 1–3 уровней, ETF, облигации, фьючерсы, валюты) и экспортирует список FIGI.
 
-## Windows автонастройка
-Запустите `setup_env.bat` (двойной клик) — создаст venv и установит пакет.
+Раздел `schedule.data_update` в `config.yaml` добавляет ежедневное обновление:
 
-## Переменные окружения
-См. `.env.example` внутри `moex_bot/`.
+```yaml
+schedule:
+  data_update:
+    func: "moex_bot.update_data.run_scheduled_update"
+    cron: "30 6 * * 1-5"
+```
 
+Запустить все задачи можно командой `moex-all` или скриптом `run_scheduler.py`. Планировщик построен на APScheduler.
 
-# MOEX Bot (Windows-ready)
+## Расширенный риск‑менеджер
 
-## Установка (Windows 11)
-1) Установите Python 3.10+.
-2) Распакуйте архив, запустите `setup_env.bat` (создаст venv и поставит пакет).
-3) Скопируйте `.env.example` в `.env` и заполните переменные.
+`RiskManager` поддерживает:
 
-Команды:
-- `moex-live` — запуск торговли
-- `moex-backtests` — бэктесты
-- `moex-server` — веб-сервер (http://127.0.0.1:8000, есть `/reports/latest`)
-- `moex-all` — общий сценарий
+- лимиты по инструментам (`max_position_pct`, `max_lots`, `max_leverage`);
+- ограничения по классам активов и автоматическое принудительное закрытие;
+- поток мониторинга просадки с регулируемым интервалом;
+- журналы событий и equity (`results/risk_journal.csv`, `results/session_history.csv`);
+- уведомления в Telegram и интеграцию с GUI.
 
-## Переменные окружения
-См. `.env.example` — храните токены только локально (не коммитьте `.env`).
+Метод `session_summary()` предоставляет консистентные метрики для интерфейсов и отчётов.
 
-## FIGI
-Перед отправкой ордеров используйте `ticker_to_figi()` из `moex_bot.core.utils.figi`.
+## Конфигурация
 
-Для динамической загрузки FIGI российских акций доступна утилита
-`load_russian_shares_figi()`, которая получает через API Тинькофф Инвест все
-инструменты с уровнем листинга 1–3 и страной риска/домициляцией `RU`. Полученный
-список можно сохранить в кэш или передать в собственную динамическую вселенную.
+Основной файл — `config.yaml`; дополнительные фрагменты можно положить в `config.d/*.yaml`.
+Загрузчик `load_config` объединяет их и разворачивает переменные окружения (`${VAR}`).
 
-## DataProvider
-`DataProvider` теперь поддерживает полноценный каскад источников: stream → REST →
-in-memory cache → CSV из `data/`.  Для ускорения можно отключить сеть через
-`provider.disable_network()`, а `latest_price()` автоматически подхватывает
-последнюю цену из кэша или файлов истории.
+Основные блоки:
+
+- `data` — интервал/глубина истории, дополнительные тикеры, расширенный список FIGI и параметры экспорта.
+- `strategies` — параметры стратегий и тикеры live‑наблюдения.
+- `risk` — настройки RiskManager, лимиты по инструментам и классам активов, параметры мониторинга.
+- `portfolio` — целевые доли стратегий для `PortfolioManager`.
+- `results_dir` — единый каталог для отчётов, журналов и БД (`results_path` устарел и сохранён для обратной совместимости).
+- `auto_selector` — фильтры автоподбора стратегий в отчётах.
+- `schedule` — cron‑задачи (бэктесты, live‑цикл, обновление данных).
+- `server` и `tinkoff` — настройки FastAPI/Dash и брокерского API.
+
+## Расширение вселенной инструментов
+
+В модуле `moex_bot/update_data.py` доступны фильтры по ликвидности, уровню листинга и классам активов.
+Для загрузки FIGI российских бумаг используйте хелперы из `moex_bot/core/utils/figi_utils.py`.
+Готовый экспорт сохраняется в `data/universe.csv` и может использоваться стратегиями и отчётами.
+
+## DataProvider и LiveTrader
+
+`DataProvider` реализует каскад источников (stream → REST → кэш → CSV) и позволяет отключать сеть через
+`provider.disable_network()`. Пример:
 
 ```python
 from moex_bot.core.data_provider import DataProvider
 
-provider = DataProvider(
-    data_dir="data",
-    stream=stream_adapter,
-    rest=rest_adapter,
-    cache_ttl=5.0,
-)
+provider = DataProvider(data_dir="data")
 price = provider.get_price("SBER")
 history = provider.load_history("SBER", interval="hour", days=90)
 ```
 
-## LiveTrader
-`LiveTrader` объединяет брокера и риск-менеджер: умеет добавлять слиппедж к лимитным
-ордерам, повторно отправлять заявки, синхронизировать позиции и equity с
-`RiskManager`, а также вести журнал сделок для последующей аналитики или
-отправки в мониторинг.
-
-## Шорты
-Контролируйте через `allow_short` в `config.yaml`.
-
-## Плечо и маржинальная торговля
-- `margin.max_leverage` — желаемое плечо в бэктестах (используется и в риск-менеджере).
-- `margin.borrow_rate_pct` / `margin.short_borrow_rate_pct` — годовые ставки за заёмное плечо (учитываются в доходности).
-- В отчётах появляются поля `avg_leverage` и `max_leverage`, а риск-менеджер контролирует совокупную экспозицию.
+`Trader` и обёртка LiveTrader добавляют управление слиппеджем, повторную отправку заявок,
+синхронизацию позиций с риск‑менеджером и журнал сделок для мониторинга.
 
 ## Автоподбор стратегий
-- Блок `auto_selector` в `config.yaml` управляет фильтрацией по Sharpe/просадке и диверсификацией.
-- После `moex-backtests` в `results/` появляются файлы `auto_selected_strategies.(csv|json)` и `auto_selected_config.yaml` с готовой конфигурацией и весами.
-- Включите `auto_selector.hyperopt.enabled` и добавьте `per_strategy` с сеткой параметров, чтобы дополнительно прогонять `hyperopt`.
 
-## Диагностика Windows/Tinkoff
-- Запустите `moex-diagnostics` (после `pip install -e .`) — проверяет наличие `setup_env.bat`, версию Python и доступность Tinkoff API.
-- Для проверки API положите токен в `.env` (`TINKOFF_TOKEN`) или переменные окружения.
+Раздел `auto_selector` конфигурации управляет фильтрацией по Sharpe/просадке, диверсификацией и гипероптимизацией.
+После `moex-backtests` в `results/` появляются файлы `auto_selected_strategies.(csv|json)` и
+`auto_selected_config.yaml` с готовыми параметрами и весами.
 
-## Подключение стриминга с резервом REST
+## Диагностика и поддержка
 
-```python
-import os
-from moex_bot.core.data_provider import DataProvider
-from moex_bot.core.adapters.stream_tinkoff import TinkoffStreamAdapter
-from moex_bot.core.adapters.rest_tinkoff import TinkoffRestAdapter
+- `moex-diagnostics` проверяет версии Python, наличие зависимостей и доступность Tinkoff API.
+- `prometheus-client` используется для экспорта метрик; порт задаётся переменной `PROM_PORT`.
+- Telegram-уведомления включаются при заполнении `telegram.token` и `telegram.chat_id`.
 
-token = os.getenv("TINKOFF_TOKEN")
-tickers = ["SBER","GAZP","LKOH"]
+## Дистрибуция
 
-stream = TinkoffStreamAdapter(token, tickers=tickers)
-rest = TinkoffRestAdapter(token)
-provider = DataProvider(stream=stream, rest=rest)
+Команда `moex-package` помогает собрать:
 
-# старт стрима и работа
-stream.start()
-price = provider.get_price("SBER")  # попробует stream, затем REST, затем cache
-```
+- `moex-package exe --entry moex_bot.run_server:main` — автономный `.exe` (требуется `pyinstaller`).
+- `moex-package docker --tag yourname/moex-bot:latest` — Docker-образ на основе `moex_bot/Dockerfile`.
 
-Если связь недоступна:
-```python
-provider.enabled = False  # читать только из кэша (без сети)
-```
+## Переменные окружения
 
-## Telegram подтверждения (/confirm /cancel)
+Используйте `.env` (см. `.env.example`) или переменные системы:
 
-- `/buy SBER 10` → сохраняется «намерение» в SQLite, бот просит подтверждение.
-- `/confirm` → бот резолвит FIGI и вызывает `TradeCallbacks.execute_order(...)` (замените на реальный вызов post_order).
-- `/cancel` → удаляет последнюю заявку пользователя.
+- `TINKOFF_TOKEN`, `TINKOFF_ACCOUNT_ID`, `TINKOFF_SANDBOX`, `TINKOFF_SANDBOX_TOKEN`.
+- `TELEGRAM_TOKEN`, `TELEGRAM_CHAT_ID`, `MOEX_ADMIN_TOKEN`.
+- `PROM_PORT`, `MOEX_API_HOST`, `MOEX_API_PORT`.
 
-Файл состояния: `results/state.sqlite` (создаётся автоматически).
-Разрешённые пользователи берутся из `ALLOWED_USERS` (кома-разделённый список user_id). Если список не задан — бот пускает всех.
+Не коммитьте `.env`; храните секреты только локально.

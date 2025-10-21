@@ -31,8 +31,6 @@ def main() -> None:
         pass
     finally:
         engine.stop()
-        journal_path = Path(cfg.get("results_dir", "results")) / "risk_journal.csv"
-        engine.journal.flush(journal_path)
 
 
 if __name__ == "__main__":
