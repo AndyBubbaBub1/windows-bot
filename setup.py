@@ -22,6 +22,7 @@ setup(
         "seaborn>=0.12",
         "scikit-learn>=1.3",
         "plotly>=5.18",
+        "dash>=2.15",
         "requests>=2.31",
         "python-multipart>=0.0.9",
     ],
@@ -31,6 +32,7 @@ setup(
             "moex-backtests=moex_bot.run_backtests:main",
             "moex-server=moex_bot.run_server:main",
             "moex-all=moex_bot.run_all:main",
+            "moex-desktop=moex_bot.gui.desktop:main",
         ],
     },
 )

@@ -5,6 +5,12 @@ results_path: results
 results_dir: results
 db_path: results/history.db
 
+data:
+  interval: hour
+  history_days: 90
+  extra_symbols:
+    - USD000UTSTOM
+    - FXRL
 # Margin and leverage settings used for backtests and live risk management.
 margin:
   max_leverage: 2.0
@@ -152,6 +158,25 @@ risk:
   borrow_rate_pct: 12.0
   short_borrow_rate_pct: 15.0
   financing_periods_per_year: 252
+  monitor_interval: 10
+  journal:
+    enabled: true
+  instrument_classes:
+    SBER: equity
+    GAZP: equity
+    FXRL: etf
+    USD000UTSTOM: fx
+  instrument_limits:
+    SBER:
+      max_position_pct: 0.25
+      max_lots: 200
+    USD000UTSTOM:
+      max_position_pct: 0.15
+  asset_class_limits:
+    equity:
+      max_exposure_pct: 0.75
+    fx:
+      max_exposure_pct: 0.3
 
 # Schedule of recurring jobs.  A daily backtest is run at 08:00
 # server time.  A live trading loop runs every minute to evaluate

@@ -1,6 +1,10 @@
 # Include configuration and example environment files in the source distribution
 include moex_bot/config.yaml
+recursive-include moex_bot/config.d *.yaml
 include moex_bot/.env.example
 
 # Include static files for the web dashboard
 recursive-include moex_bot/web/static *
+
+# Include packaging helpers
+recursive-include packaging *.spec *.py

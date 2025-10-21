@@ -26,6 +26,7 @@ dependencies = [
   "seaborn>=0.12",         # Statistical plotting used in reports
   "scikit-learn>=1.3",     # Machine learning utilities (clustering, metrics)
   "plotly>=5.18",          # Interactive charts in reports
+  "dash>=2.15",            # Dash dashboard and desktop reuse
   "requests>=2.31",        # HTTP client for external APIs
   "python-multipart>=0.0.9" # Parse form-data in FastAPI (upload endpoints)
 ]
@@ -36,6 +37,13 @@ moex-backtests = "moex_bot.run_backtests:main"
 moex-server = "moex_bot.run_server:main"
 moex-all = "moex_bot.run_all:main"
 moex-diagnostics = "moex_bot.run_diagnostics:main"
+moex-desktop = "moex_bot.gui.desktop:main"
+
+[project.optional-dependencies]
+packaging = [
+  "pyinstaller>=6.3",
+  "pefile>=2023.2.7; sys_platform == 'win32'",
+]
 
 [tool.black]
 line-length = 100

@@ -1,0 +1,94 @@
+# Strategy bundle split from config.yaml.
+# You can customise this file independently without touching the main config.
+
+strategies:
+  sma_strategy:
+    class: SMAStrategy
+    module: sma
+    params:
+      short_window: 5
+      long_window: 20
+    symbols:
+      - SBER
+      - GAZP
+  ml_predict:
+    class: MLPredictStrategy
+    module: ml_predict
+    params:
+      window: 30
+      model: RandomForest
+    symbols:
+      - LKOH
+      - ROSN
+  supertrend:
+    class: SuperTrendStrategy
+    module: supertrend
+    params:
+      period: 10
+      multiplier: 3.0
+    symbols:
+      - TATN
+      - MTSS
+  atr_stop:
+    class: ATRStopStrategy
+    module: atr_stop
+    params:
+      atr_period: 14
+      multiplier: 2.0
+    symbols:
+      - AFLT
+      - MGNT
+  pair_trading:
+    class: PairTradingStrategy
+    module: pair_trading
+    params:
+      lookback: 60
+      entry_threshold: 2.0
+      exit_threshold: 0.5
+    symbols:
+      - SBER
+      - GAZP
+  rsi:
+    class: RSIStrategy
+    module: rsi
+    params:
+      period: 14
+      lower: 30.0
+      upper: 70.0
+    symbols:
+      - SBER
+      - GAZP
+  bollinger_bands:
+    class: BollingerBandsStrategy
+    module: bollinger_bands
+    params:
+      window: 20
+      multiplier: 2.0
+    symbols:
+      - MGNT
+      - AFLT
+  arbitrage:
+    class: ArbitrageStrategy
+    module: arbitrage
+    params:
+      lookback: 20
+      entry_threshold: 2.0
+      exit_threshold: 0.5
+    symbols:
+      - SBER
+      - GAZP
+  news_sentiment:
+    class: NewsSentimentStrategy
+    module: news_sentiment
+    params: {}
+    symbols:
+      - ROSN
+      - TATN
+  lstm_predict:
+    class: LSTMPredictStrategy
+    module: lstm_predict
+    params:
+      window: 30
+    symbols:
+      - GAZP
+      - LKOH

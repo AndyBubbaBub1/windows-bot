@@ -1,83 +1,98 @@
-"""Static universe of liquid Russian equities (1st and 2nd echelons).
-
-This module contains a curated list of liquid Russian shares traded on
-the Moscow Exchange (MOEX).  The list covers a broad set of large- and
-mid‑capitalisation companies commonly referred to as the first and
-second echelons.  Each entry includes the ticker symbol, its FIGI
-identifier and the board identifier used on MOEX.  While FIGI codes
-could be resolved at runtime via the Tinkoff Invest API or the MOEX
-ISS, a static mapping ensures the bot can operate offline and
-produces reproducible backtest results.
-
-You can extend or modify this universe as needed.  If you need a
-dynamic universe, consider implementing a loader using the ISS API in
-``moex_bot.core.utils.figi.ticker_to_figi`` and caching the results.
-
-Example usage::
-
-    from moex_bot.universe_ru import get_universe, lookup_instrument
-    for inst in get_universe():
-        print(inst['ticker'], inst['figi'], inst['board'])
-
-"""
+"""Расширенный список российских инструментов."""
 
 from __future__ import annotations
 
-from typing import List, Dict
+from typing import Dict, Iterable, List, Sequence
 
-__all__ = ["RU_LARGE_MID_CAP", "get_universe", "lookup_instrument"]
+__all__ = [
+    "RU_EQUITIES_TIER1_2",
+    "RU_EQUITIES_TIER3",
+    "RU_BONDS",
+    "RU_ETF",
+    "RU_FUTURES",
+    "RU_FX",
+    "get_universe",
+    "lookup_instrument",
+]
 
-# NOTE: FIGI codes were sourced from publicly available data.  If a
-# symbol has no FIGI available, the field is left blank.  You can
-# update the values manually or use ``ticker_to_figi`` from
-# ``moex_bot.core.utils.figi`` to resolve them dynamically.
-RU_LARGE_MID_CAP: List[Dict[str, str]] = [
-    {"ticker": "SBER", "figi": "BBG004730N88", "board": "TQBR"},
-    {"ticker": "GAZP", "figi": "BBG004730RP0", "board": "TQBR"},
-    {"ticker": "LKOH", "figi": "BBG004731032", "board": "TQBR"},
-    {"ticker": "GMKN", "figi": "BBG0047315M1", "board": "TQBR"},
-    {"ticker": "POLY", "figi": "BBG003421991", "board": "TQBR"},
-    {"ticker": "NVTK", "figi": "BBG004731485", "board": "TQBR"},
-    {"ticker": "ROSN", "figi": "BBG004731354", "board": "TQBR"},
-    {"ticker": "TATN", "figi": "BBG0047315H8", "board": "TQBR"},
-    {"ticker": "VTBR", "figi": "BBG004730ZJ9", "board": "TQBR"},
-    {"ticker": "CHMF", "figi": "BBG004731060", "board": "TQBR"},
-    {"ticker": "ALRS", "figi": "BBG004730QR0", "board": "TQBR"},
-    {"ticker": "MGNT", "figi": "BBG00475KDV8", "board": "TQBR"},
-    {"ticker": "MTSS", "figi": "BBG004731354", "board": "TQBR"},
-    {"ticker": "SNGS", "figi": "BBG004730Z02", "board": "TQBR"},
-    {"ticker": "SNGSP", "figi": "BBG004730Z11", "board": "TQBR"},
-    {"ticker": "RAO", "figi": "BBG0047307Y2", "board": "TQBR"},
-    {"ticker": "IRAO", "figi": "BBG00475KHR5", "board": "TQBR"},
-    {"ticker": "HYDR", "figi": "BBG004730JJ8", "board": "TQBR"},
-    {"ticker": "AFLT", "figi": "BBG00475KH00", "board": "TQBR"},
-    {"ticker": "AFKS", "figi": "BBG00475KH19", "board": "TQBR"},
-    {"ticker": "CIAN", "figi": "BBG012Q3L9D6", "board": "TQBR"},
+RU_EQUITIES_TIER1_2: List[Dict[str, str]] = [
+    {"ticker": "SBER", "figi": "BBG004730N88", "board": "TQBR", "class": "equity"},
+    {"ticker": "GAZP", "figi": "BBG004730RP0", "board": "TQBR", "class": "equity"},
+    {"ticker": "LKOH", "figi": "BBG004731032", "board": "TQBR", "class": "equity"},
+    {"ticker": "GMKN", "figi": "BBG0047315M1", "board": "TQBR", "class": "equity"},
+    {"ticker": "POLY", "figi": "BBG003421991", "board": "TQBR", "class": "equity"},
+    {"ticker": "NVTK", "figi": "BBG004731485", "board": "TQBR", "class": "equity"},
+    {"ticker": "ROSN", "figi": "BBG004731354", "board": "TQBR", "class": "equity"},
+    {"ticker": "TATN", "figi": "BBG0047315H8", "board": "TQBR", "class": "equity"},
+    {"ticker": "VTBR", "figi": "BBG004730ZJ9", "board": "TQBR", "class": "equity"},
+    {"ticker": "CHMF", "figi": "BBG004731060", "board": "TQBR", "class": "equity"},
+    {"ticker": "ALRS", "figi": "BBG004730QR0", "board": "TQBR", "class": "equity"},
+    {"ticker": "MGNT", "figi": "BBG00475KDV8", "board": "TQBR", "class": "equity"},
+    {"ticker": "MTSS", "figi": "BBG004731354", "board": "TQBR", "class": "equity"},
+    {"ticker": "SNGS", "figi": "BBG004730Z02", "board": "TQBR", "class": "equity"},
+    {"ticker": "SNGSP", "figi": "BBG004730Z11", "board": "TQBR", "class": "equity"},
+    {"ticker": "IRAO", "figi": "BBG00475KHR5", "board": "TQBR", "class": "equity"},
+    {"ticker": "HYDR", "figi": "BBG004730JJ8", "board": "TQBR", "class": "equity"},
+    {"ticker": "AFLT", "figi": "BBG00475KH00", "board": "TQBR", "class": "equity"},
+    {"ticker": "AFKS", "figi": "BBG00475KH19", "board": "TQBR", "class": "equity"},
+    {"ticker": "CIAN", "figi": "BBG012Q3L9D6", "board": "TQBR", "class": "equity"},
+]
+
+RU_EQUITIES_TIER3: List[Dict[str, str]] = [
+    {"ticker": "BELU", "figi": "BBG004S68473", "board": "TQBR", "class": "equity"},
+    {"ticker": "FLOT", "figi": "BBG004S683W7", "board": "TQBR", "class": "equity"},
+    {"ticker": "PHOR", "figi": "BBG0047315D0", "board": "TQBR", "class": "equity"},
+    {"ticker": "ENPG", "figi": "BBG004731489", "board": "TQBR", "class": "equity"},
+    {"ticker": "MOEX", "figi": "BBG004S68438", "board": "TQBR", "class": "equity"},
+]
+
+RU_BONDS: List[Dict[str, str]] = [
+    {"ticker": "SU26238RMFS6", "figi": "BBG00R13S0H3", "board": "TQCB", "class": "bond"},
+    {"ticker": "OFZ26240", "figi": "BBG00R13S0K7", "board": "TQOB", "class": "bond"},
+    {"ticker": "RU000A1058F0", "figi": "BBG0143H4Z17", "board": "TQOB", "class": "bond"},
+]
+
+RU_ETF: List[Dict[str, str]] = [
+    {"ticker": "FXRL", "figi": "BBG00QPYJ5H0", "board": "TQTF", "class": "etf"},
+    {"ticker": "FXUS", "figi": "BBG00QPYJ5F8", "board": "TQTF", "class": "etf"},
+    {"ticker": "VTBM", "figi": "BBG00QPYJ5G9", "board": "TQTF", "class": "etf"},
+]
+
+RU_FUTURES: List[Dict[str, str]] = [
+    {"ticker": "RI", "figi": "FUTRI0000020", "board": "RFUD", "class": "futures"},
+    {"ticker": "Si", "figi": "FUTSI0000020", "board": "RFUD", "class": "futures"},
+]
+
+RU_FX: List[Dict[str, str]] = [
+    {"ticker": "USD000UTSTOM", "figi": "BBG0013HGFT4", "board": "CETS", "class": "fx"},
+    {"ticker": "EUR_RUB__TOM", "figi": "BBG0013HGFT3", "board": "CETS", "class": "fx"},
+]
+
+_ALL_UNIVERSES: Sequence[List[Dict[str, str]]] = [
+    RU_EQUITIES_TIER1_2,
+    RU_EQUITIES_TIER3,
+    RU_BONDS,
+    RU_ETF,
+    RU_FUTURES,
+    RU_FX,
 ]
 
 
-def get_universe() -> List[Dict[str, str]]:
-    """Return a copy of the Russian equity universe.
-
-    Returns:
-        A list of dictionaries, each representing a tradable instrument.
-    """
-    return [inst.copy() for inst in RU_LARGE_MID_CAP]
+def get_universe(classes: Iterable[str] | None = None) -> List[Dict[str, str]]:
+    target = {c.lower() for c in classes} if classes else None
+    instruments: List[Dict[str, str]] = []
+    for bucket in _ALL_UNIVERSES:
+        for inst in bucket:
+            if target and inst.get("class", "").lower() not in target:
+                continue
+            instruments.append(inst.copy())
+    return instruments
 
 
 def lookup_instrument(ticker: str) -> Dict[str, str]:
-    """Lookup instrument details by ticker.
-
-    Args:
-        ticker: Ticker symbol (case‑insensitive).
-
-    Returns:
-        A dictionary with keys ``ticker``, ``figi`` and ``board``.  If the
-        ticker is not found in the universe the FIGI will be empty and the
-        board defaults to ``TQBR``.
-    """
     t = ticker.strip().upper()
-    for inst in RU_LARGE_MID_CAP:
-        if inst["ticker"] == t:
-            return inst.copy()
-    return {"ticker": t, "figi": "", "board": "TQBR"}
+    for bucket in _ALL_UNIVERSES:
+        for inst in bucket:
+            if inst["ticker"].upper() == t:
+                return inst.copy()
+    return {"ticker": t, "figi": "", "board": "TQBR", "class": "equity"}

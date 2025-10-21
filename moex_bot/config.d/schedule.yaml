@@ -1,0 +1,13 @@
+# APScheduler jobs extracted from the monolithic configuration.
+# Adjust cron strings as needed for your environment.
+
+schedule:
+  daily_backtest:
+    func: "moex_bot.run_backtests.main"
+    cron: "0 8 * * *"
+  live_trading:
+    func: "moex_bot.core.live_loop.run_live_cycle"
+    cron: "*/1 * * * *"
+  data_update:
+    func: "moex_bot.update_data.run_scheduled_update"
+    cron: "15 7 * * *"
