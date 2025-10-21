@@ -11,6 +11,21 @@ data:
   extra_symbols:
     - USD000UTSTOM
     - FXRL
+  universe:
+    enabled: true
+    classes:
+      - equity
+      - etf
+      - bond
+      - futures
+      - fx
+    tiers:
+      - tier1_2
+      - tier3
+    exclude: []
+    include_figi: true
+    export: true
+    export_path: data/universe.csv
 # Margin and leverage settings used for backtests and live risk management.
 margin:
   max_leverage: 2.0
@@ -189,6 +204,9 @@ schedule:
   live_trading:
     func: "moex_bot.core.live_loop.run_live_cycle"
     cron: "*/1 * * * *"  # every minute
+  data_update:
+    func: "moex_bot.update_data.run_scheduled_update"
+    cron: "30 6 * * 1-5"
 
 # Portfolio allocation: target weights for each strategy; must sum to 1.0.
 portfolio:

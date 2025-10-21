@@ -18,10 +18,13 @@
 from __future__ import annotations
 
 import asyncio
+import csv
+import datetime as dt
 import logging
 import threading
 from dataclasses import dataclass, field
-from typing import Any, Optional, Callable, Dict
+from pathlib import Path
+from typing import Any, Optional, Dict
 
 import pandas as pd
 
@@ -60,6 +63,7 @@ class EngineState:
     last_prices: dict[str, float] = field(default_factory=dict)
     stream_started: bool = False
     bot_started: bool = False
+    disabled_strategies: set[str] = field(default_factory=set)
 
 
 class Engine:
@@ -88,6 +92,8 @@ class Engine:
         self.risk_manager.attach_journal(self.journal)
         self.risk_manager.set_notifier(self._notify_risk)
         self.risk_manager.set_force_exit_callback(self._force_exit_position)
+
+        self.results_dir = Path(self.cfg.get("results_dir", "results"))
 
         initial_mode = cfg.get("trade_mode") or "sandbox"
         self.state.trade_mode = str(initial_mode)
@@ -179,12 +185,114 @@ class Engine:
     def stop(self) -> None:
         self.state.running = False
         logger.info("⏸ Торговый движок остановлен")
+        self._finalize_session()
 
     def toggle_mode(self) -> str:
         self.state.trade_mode = "real" if self.state.trade_mode == "sandbox" else "sandbox"
         self.trader.trade_mode = self.state.trade_mode
         logger.info("🔁 Переключение режима на %s", self.state.trade_mode)
         return self.state.trade_mode
+
+    # ------------------------------------------------------------------
+    # Управление стратегиями и состояние для GUI
+    # ------------------------------------------------------------------
+    def list_strategies(self) -> list[dict[str, object]]:
+        """Возвращает перечень стратегий и их параметры для UI."""
+
+        items: list[dict[str, object]] = []
+        strat_cfg = self.cfg.get("strategies") or {}
+        for name in sorted(self.strategies.keys()):
+            cfg = strat_cfg.get(name, {}) or {}
+            items.append(
+                {
+                    "name": name,
+                    "module": cfg.get("module", ""),
+                    "class": cfg.get("class", ""),
+                    "symbols": [str(sym).upper() for sym in cfg.get("symbols", []) or []],
+                    "enabled": name not in self.state.disabled_strategies,
+                }
+            )
+        return items
+
+    def set_strategy_enabled(self, name: str, enabled: bool) -> bool:
+        """Включает или выключает стратегию. Возвращает итоговый статус."""
+
+        name = str(name)
+        if name not in self.strategies:
+            return False
+        if enabled:
+            self.state.disabled_strategies.discard(name)
+            logger.info("✅ Стратегия %s активирована", name)
+            return True
+        self.state.disabled_strategies.add(name)
+        logger.info("🚫 Стратегия %s деактивирована", name)
+        return False
+
+    def enabled_strategy_names(self) -> set[str]:
+        """Возвращает множество активных стратегий."""
+
+        return {name for name in self.strategies if name not in self.state.disabled_strategies}
+
+    def positions_snapshot(self) -> list[dict[str, object]]:
+        """Подготавливает список позиций для отображения в UI."""
+
+        snapshot: list[dict[str, object]] = []
+        for symbol, pos in self.risk_manager.positions.items():
+            snapshot.append(
+                {
+                    "symbol": symbol,
+                    "quantity": pos.get("quantity", 0),
+                    "entry_price": pos.get("entry_price", 0.0),
+                    "last_price": pos.get("last_price", pos.get("entry_price", 0.0)),
+                    "strategy": pos.get("strategy"),
+                }
+            )
+        return snapshot
+
+    def session_history(self, limit: int = 50) -> list[dict[str, object]]:
+        """Читает последние записи журнала сессий."""
+
+        path = self.results_dir / "session_history.csv"
+        if not path.exists():
+            return []
+        try:
+            import pandas as _pd
+
+            df = _pd.read_csv(path).tail(limit)
+            return df.fillna("").to_dict(orient="records")
+        except Exception:
+            rows: list[dict[str, object]] = []
+            try:
+                with path.open("r", encoding="utf-8") as fh:
+                    reader = csv.DictReader(fh)
+                    rows = list(reader)[-limit:]
+            except Exception:
+                return []
+            return rows
+
+    def risk_events(self, limit: int = 50) -> list[dict[str, object]]:
+        """Возвращает последние события риск-менеджера."""
+
+        return self.journal.snapshot(limit)
+
+    def schedule_overview(self) -> list[dict[str, object]]:
+        """Возвращает описание задач из конфигурации."""
+
+        overview: list[dict[str, object]] = []
+        for name, job in (self.cfg.get("schedule") or {}).items():
+            cron = job.get("cron")
+            if isinstance(cron, dict):
+                cron_text = ", ".join(f"{k}={v}" for k, v in cron.items())
+            else:
+                cron_text = str(cron) if cron is not None else ""
+            overview.append(
+                {
+                    "name": name,
+                    "func": job.get("func"),
+                    "cron": cron_text,
+                }
+            )
+        return overview
 
     def _notify_risk(self, message: str) -> None:
         telegram_cfg = self.cfg.get("telegram", {}) or {}
@@ -197,6 +305,104 @@ class Engine:
                 send_telegram_message(message, [], token, chat_id)
             except Exception as exc:
                 logger.debug("Risk notification failed: %s", exc)
+
+    def _finalize_session(self) -> None:
+        try:
+            summary = self._build_session_summary()
+        except Exception as exc:
+            logger.warning("Не удалось собрать сводку сессии: %s", exc)
+            summary = None
+
+        try:
+            self.results_dir.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            logger.debug("Не удалось создать каталог результатов %s", self.results_dir)
+
+        try:
+            journal_path = self.results_dir / "risk_journal.csv"
+            self.journal.flush(journal_path)
+        except Exception as exc:
+            logger.debug("Не удалось сохранить журнал рисков: %s", exc)
+
+        if summary is None:
+            return
+
+        try:
+            self._append_session_summary(summary)
+        except Exception as exc:
+            logger.debug("Не удалось обновить журнал сессий: %s", exc)
+        self._notify_session_summary(summary)
+
+    def _build_session_summary(self) -> Dict[str, Any]:
+        snapshot = self.risk_manager.session_summary()
+        positions_detail: list[str] = []
+        for symbol, pos in self.risk_manager.positions.items():
+            qty = pos.get("quantity", 0)
+            price = pos.get("last_price", pos.get("entry_price", 0))
+            positions_detail.append(f"{symbol}:{qty}@{price}")
+        return {
+            "timestamp": dt.datetime.utcnow().isoformat(),
+            "mode": self.state.trade_mode,
+            "equity": snapshot["equity"],
+            "pnl": snapshot["pnl"],
+            "gross_exposure": snapshot["gross_exposure"],
+            "net_exposure": snapshot["net_exposure"],
+            "open_positions": snapshot["open_positions"],
+            "positions": " | ".join(positions_detail),
+            "halt_trading": snapshot["halt_trading"],
+            "max_drawdown_pct": snapshot["max_drawdown_pct"],
+            "intraday_drawdown_pct": snapshot["intraday_drawdown_pct"],
+            "peak_equity": float(self.risk_manager.peak_equity),
+        }
+
+    def _append_session_summary(self, summary: Dict[str, Any]) -> None:
+        session_path = self.results_dir / "session_history.csv"
+        fieldnames = [
+            "timestamp",
+            "mode",
+            "equity",
+            "pnl",
+            "gross_exposure",
+            "net_exposure",
+            "open_positions",
+            "positions",
+            "halt_trading",
+            "max_drawdown_pct",
+            "intraday_drawdown_pct",
+            "peak_equity",
+        ]
+        is_new = not session_path.exists()
+        with session_path.open("a", newline="", encoding="utf-8") as fh:
+            writer = csv.DictWriter(fh, fieldnames=fieldnames)
+            if is_new:
+                writer.writeheader()
+            writer.writerow(summary)
+
+    def _notify_session_summary(self, summary: Dict[str, Any]) -> None:
+        telegram_cfg = self.cfg.get("telegram", {}) or {}
+        token = telegram_cfg.get("token")
+        chat_id = telegram_cfg.get("chat_id")
+        if not (token and chat_id):
+            return
+        try:
+            from ..reporting.report_builder import send_telegram_message
+
+            pnl = summary.get("pnl", 0.0)
+            pnl_str = f"{pnl:,.0f} ₽" if isinstance(pnl, (int, float)) else str(pnl)
+            equity = summary.get("equity", 0.0)
+            equity_str = f"{equity:,.0f} ₽" if isinstance(equity, (int, float)) else str(equity)
+            positions = summary.get("positions") or "нет"
+            message = (
+                "📝 Итоги торговой сессии\n"
+                f"Режим: {summary.get('mode')}\n"
+                f"Капитал: {equity_str}\n"
+                f"PnL: {pnl_str}\n"
+                f"Открытые позиции: {summary.get('open_positions')} ({positions})\n"
+                f"Текущая просадка: {summary.get('intraday_drawdown_pct', 0):.2%}"
+            )
+            send_telegram_message(message, [], token, chat_id)
+        except Exception as exc:
+            logger.debug("Не удалось отправить сводку в Telegram: %s", exc)
 
     def _force_exit_position(self, symbol: str) -> None:
         symbol = symbol.upper()
@@ -277,7 +483,14 @@ class Engine:
         token = telegram_cfg.get("token")
         chat_id = telegram_cfg.get("chat_id")
 
+        active = self.enabled_strategy_names()
+        if not active:
+            logger.warning("Все стратегии отключены — цикл пропущен")
+            return
+
         for strat_name, strat_callable in self.strategies.items():
+            if strat_name not in active:
+                continue
             spec = (self.cfg.get("strategies") or {}).get(strat_name, {}) or {}
             symbols = spec.get("symbols", []) or []
             if not symbols:
@@ -338,7 +551,7 @@ class Engine:
             if allowed_lots <= 0:
                 return
             self.trader.buy(figi=symbol, lots=allowed_lots)
-            self.risk_manager.register_entry(symbol, price, allowed_lots)
+            self.risk_manager.register_entry(symbol, price, allowed_lots, strategy=strat_name)
             self._update_portfolio(symbol, allowed_lots, price, strat_name)
             return
         qty = int(self.risk_manager.positions[symbol].get("quantity", 0))
@@ -348,7 +561,7 @@ class Engine:
             self._remove_portfolio(symbol)
             if allowed_lots > 0:
                 self.trader.buy(figi=symbol, lots=allowed_lots)
-                self.risk_manager.register_entry(symbol, price, allowed_lots)
+                self.risk_manager.register_entry(symbol, price, allowed_lots, strategy=strat_name)
                 self._update_portfolio(symbol, allowed_lots, price, strat_name)
 
     async def _ensure_short(
@@ -363,7 +576,7 @@ class Engine:
             self._remove_portfolio(symbol)
         if allowed_lots > 0:
             self.trader.sell(figi=symbol, lots=allowed_lots)
-            self.risk_manager.register_entry(symbol, price, -allowed_lots)
+            self.risk_manager.register_entry(symbol, price, -allowed_lots, strategy=strat_name)
             self._update_portfolio(symbol, -allowed_lots, price, strat_name)
 
     def _update_portfolio(self, symbol: str, quantity: int, price: float, strategy: str) -> None:
